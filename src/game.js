@@ -94,9 +94,11 @@ export class Game {
 
         // Single theme/palette for now; later this can be per-world.
         this.theme = {
-            sky: 0x0b1022,
-            fog: 0x050716,
-            asteroidPalette: [0x58607a, 0x6a5a62, 0x4f6b6e, 0x5e5d49],
+            // Slightly lifted, more saturated deep-space so silhouettes read.
+            sky: 0x101a3a,
+            fog: 0x0b1533,
+            // Brighter rock range; face shading will still add depth.
+            asteroidPalette: [0x7c86a3, 0x8a7a84, 0x6b8f92, 0x8b8a6c],
             station: { hull: 0xa6adb8, dark: 0x1b1f2a, light: 0x66ccff },
             ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0x66ccff }
         };
@@ -122,7 +124,9 @@ export class Game {
         // Clamp DPR a bit; voxel scenes can get vertex-heavy quickly.
         this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.renderer.toneMapping = THREE.NoToneMapping;
+        // Lift mids a bit; helps voxel readability without cranking lights.
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.15;
 
         // Post-processing
         const renderScene = new RenderPass(this.scene, this.camera);
@@ -141,8 +145,12 @@ export class Game {
         // Lighting
         // Minecraft-ish: simple ambient + key + faint rim.
         // Ambient is intentionally a bit high; Minecraft-like face shading provides the depth.
-        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.35);
+        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.1);
         this.scene.add(ambientLight);
+
+        // Soft "sky vs void" fill improves depth cues (tops read lighter than undersides).
+        const hemi = new THREE.HemisphereLight(0xcfe2ff, 0x0a0618, 0.55);
+        this.scene.add(hemi);
         
         const sunLight = new THREE.DirectionalLight(0xffffff, 1.1);
         sunLight.position.set(120, 160, 90);
@@ -201,11 +209,11 @@ export class Game {
         dustGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
         
         const dustMat = new THREE.PointsMaterial({
-            color: 0x9ad7ff,
-            size: 0.7,
+            color: 0xbfe6ff,
+            size: 1.1,
             transparent: true,
-            opacity: 0.5,
-            sizeAttenuation: false
+            opacity: 0.65,
+            sizeAttenuation: true
         });
         
         this.spaceDustPoints = new THREE.Points(dustGeo, dustMat);
@@ -230,7 +238,7 @@ export class Game {
                 size,
                 transparent: true,
                 opacity,
-                sizeAttenuation: false
+                sizeAttenuation: true
             });
             const points = new THREE.Points(geo, mat);
             this.scene.add(points);
@@ -239,9 +247,9 @@ export class Game {
 
         const ws = this.worldScale;
         this.retroBackdropLayers = [
-            mkLayer({ count: 850, range: 550 * ws, size: 2.2, color: 0xcfe3ff, opacity: 0.85, drift: 0.24 }),
-            mkLayer({ count: 520, range: 850 * ws, size: 2.8, color: 0xa7d0ff, opacity: 0.72, drift: 0.16 }),
-            mkLayer({ count: 260, range: 1200 * ws, size: 3.3, color: 0xffd2a8, opacity: 0.65, drift: 0.09 })
+            mkLayer({ count: 850, range: 550 * ws, size: 3.2, color: 0xe7f1ff, opacity: 0.95, drift: 0.24 }),
+            mkLayer({ count: 520, range: 850 * ws, size: 3.8, color: 0xbfe0ff, opacity: 0.85, drift: 0.16 }),
+            mkLayer({ count: 260, range: 1200 * ws, size: 4.5, color: 0xffd7b2, opacity: 0.78, drift: 0.09 })
         ];
 
         // Big pixel nebula sprites (chunky and low-detail on purpose)
@@ -254,7 +262,7 @@ export class Game {
                 map: nebTex,
                 color: c,
                 transparent: true,
-                opacity: 0.14,
+                opacity: 0.22,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -386,9 +394,9 @@ export class Game {
             }),
             rock: createPixelTileTexture({
                 kind: 'rock',
-                base: 0x6a6f7d,
-                dark: 0x3e4350,
-                light: 0x8f96a8
+                base: 0x8a90a1,
+                dark: 0x5e6577,
+                light: 0xb1b7c8
             }),
             stripes: createPixelTileTexture({
                 kind: 'stripes',
@@ -512,7 +520,12 @@ export class Game {
                 for (const k of Array.from(filled)) {
                     if (rng() < 0.10) filled.delete(k);
                 }
-                const geo = buildVoxelSurfaceGeometry(filled, { voxelSize: this.voxel.size });
+                const geo = buildVoxelSurfaceGeometry(filled, {
+                    voxelSize: this.voxel.size,
+                    shadeTop: 1.0,
+                    shadeSide: 0.92,
+                    shadeBottom: 0.78
+                });
                 // Normalize geometry so object scale remains a "radius-ish" number (used by collisions).
                 geo.computeBoundingSphere();
                 const br = geo.boundingSphere?.radius ?? 1;
@@ -523,19 +536,25 @@ export class Game {
         }
 
         // Create asteroids
-        for (let i = 0; i < 300; i++) {
+        const asteroidRange = 2200 * this.worldScale;
+        for (let i = 0; i < 320; i++) {
             const variant = this._voxelAsteroidVariants[i % this._voxelAsteroidVariants.length];
             const asteroidColor = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
-            const material = this._voxLit({ color: asteroidColor, map: this._voxelTextures.rock, emissive: 0x060814, emissiveIntensity: 0.05 });
+            const material = this._voxLit({
+                color: asteroidColor,
+                map: this._voxelTextures.rock,
+                emissive: 0x0b1633,
+                emissiveIntensity: 0.10
+            });
 
             const asteroid = new THREE.Mesh(variant.geo, material);
             const scale = (1.2 + Math.random() * 7.5) * this.worldScale;
             asteroid.scale.set(scale, scale, scale);
             
             asteroid.position.set(
-                (Math.random() - 0.5) * 3000 * this.worldScale,
-                (Math.random() - 0.5) * 3000 * this.worldScale,
-                (Math.random() - 0.5) * 3000 * this.worldScale
+                (Math.random() - 0.5) * asteroidRange * 2,
+                (Math.random() - 0.5) * asteroidRange * 2,
+                (Math.random() - 0.5) * asteroidRange * 2
             );
             
             asteroid.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);

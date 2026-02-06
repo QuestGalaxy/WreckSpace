@@ -14,6 +14,9 @@ export class CombatSystem {
     this._targetWorldPos = new THREE.Vector3();
     this._bulletPos = new THREE.Vector3();
     this._noseOffset = new THREE.Vector3(0, 0, 2);
+    this._playerPos = new THREE.Vector3();
+    this._playerQuat = new THREE.Quaternion();
+    this._noseWorld = new THREE.Vector3();
   }
 
   /**
@@ -28,19 +31,23 @@ export class CombatSystem {
 
   updateTargetLock() {
     const g = this.game;
-    if (!g.player || !g.camera) return;
+    if (!g.playerEntityId || !g.camera) return;
+    const pt = g.world.transform.get(g.playerEntityId);
+    const prq = g.world.rotationQuat.get(g.playerEntityId);
+    if (!pt || !prq) return;
 
     let bestTargetEntityId = null;
     let bestAngle = 0.25; // Slightly wider cone
     const maxDist = 500; // Increased range
 
-    this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion).normalize();
-    const playerPos = g.player.position;
+    this._playerPos.set(pt.x, pt.y, pt.z);
+    this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
+    this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat).normalize();
 
     for (const [entityId] of g.world.objectMeta) {
       const t = g.world.transform.get(entityId);
       if (!t) continue;
-      this._dirToObj.set(t.x - playerPos.x, t.y - playerPos.y, t.z - playerPos.z);
+      this._dirToObj.set(t.x - this._playerPos.x, t.y - this._playerPos.y, t.z - this._playerPos.z);
       const dist = this._dirToObj.length();
       if (dist > maxDist) continue;
 
@@ -77,8 +84,13 @@ export class CombatSystem {
     const g = this.game;
     const now = Date.now();
     if (g.isPaused || g.stats.energy <= 0 || now - g.lastShotTime < g.fireRate) return;
-    if (!g.player) return;
+    if (!g.playerEntityId) return;
     if (!g.scene) return;
+    const pt = g.world.transform.get(g.playerEntityId);
+    const prq = g.world.rotationQuat.get(g.playerEntityId);
+    if (!pt || !prq) return;
+    this._playerPos.set(pt.x, pt.y, pt.z);
+    this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
 
     // Ensure audio is ready on first interaction
     g.soundManager.init();
@@ -107,7 +119,8 @@ export class CombatSystem {
     bullet.add(core);
 
     // Start exactly at the nose of the ship
-    this._bulletPos.copy(this._noseOffset).applyMatrix4(g.player.matrixWorld);
+    this._noseWorld.copy(this._noseOffset).applyQuaternion(this._playerQuat);
+    this._bulletPos.copy(this._playerPos).add(this._noseWorld);
     bullet.position.copy(this._bulletPos);
 
     // Direction and rotation
@@ -119,12 +132,12 @@ export class CombatSystem {
         forward = this._dirToObj.subVectors(this._targetWorldPos, this._bulletPos).normalize();
         bullet.lookAt(this._targetWorldPos);
       } else {
-        forward = this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion);
-        bullet.quaternion.copy(g.player.quaternion);
+        forward = this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat);
+        bullet.quaternion.copy(this._playerQuat);
       }
     } else {
-      forward = this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion);
-      bullet.quaternion.copy(g.player.quaternion);
+      forward = this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat);
+      bullet.quaternion.copy(this._playerQuat);
     }
 
     bullet.userData = {

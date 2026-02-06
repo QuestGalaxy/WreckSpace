@@ -30,6 +30,12 @@ export class World {
     this.velocity = new Map();
 
     /**
+     * Quaternion rotation storage (used by player first to preserve local-axis rotations).
+     * @type {Map<number, { x: number, y: number, z: number, w: number }>}
+     */
+    this.rotationQuat = new Map();
+
+    /**
      * Loot-only motion params (temporary; becomes a component later).
      * @type {Map<number, { rotationSpeed: { x: number, y: number, z: number }, driftOffset: number, floatBaseY: number }>}
      */
@@ -80,6 +86,7 @@ export class World {
     this.loot.delete(entityId);
     this.transform.delete(entityId);
     this.velocity.delete(entityId);
+    this.rotationQuat.delete(entityId);
     this.lootMotion.delete(entityId);
     this.spin.delete(entityId);
   }

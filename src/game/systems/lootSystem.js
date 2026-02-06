@@ -25,6 +25,9 @@ export class LootSystem {
   updateLoot(dtSec, nowSec) {
     const g = this.game;
     const k = dtSec * 60;
+    if (!g.playerEntityId) return;
+    const playerT = g.world.transform.get(g.playerEntityId);
+    if (!playerT) return;
 
     for (const [entityId, meta] of g.world.loot) {
       const t = g.world.transform.get(entityId);
@@ -50,9 +53,9 @@ export class LootSystem {
       t.rz += m.rotationSpeed.z * k;
 
       // 4) Magnet + collect check (player still lives in Three for now)
-      const dx = g.player.position.x - t.x;
-      const dy = g.player.position.y - t.y;
-      const dz = g.player.position.z - t.z;
+      const dx = playerT.x - t.x;
+      const dy = playerT.y - t.y;
+      const dz = playerT.z - t.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const magnetRange = 50;
 
@@ -115,8 +118,13 @@ export class LootSystem {
 
   checkDeposit() {
     const g = this.game;
-    if (!g.player || !g.baseStation) return;
-    if (g.player.position.distanceTo(g.baseStation.position) < 30) {
+    if (!g.playerEntityId || !g.baseStation) return;
+    const t = g.world.transform.get(g.playerEntityId);
+    if (!t) return;
+    const dx = t.x - g.baseStation.position.x;
+    const dy = t.y - g.baseStation.position.y;
+    const dz = t.z - g.baseStation.position.z;
+    if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 30) {
       if (g.stats.storage > 0) this.depositLoot();
     }
   }

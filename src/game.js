@@ -76,6 +76,9 @@ export class Game {
 
         /** @type {number|null} */
         this.currentTargetEntityId = null;
+
+        /** @type {number|null} */
+        this.playerEntityId = null;
     }
 
     init() {
@@ -419,6 +422,28 @@ export class Game {
         
         // Initial position
         this.player.position.set(0, 0, 0);
+
+        // World-first: player simulation state
+        this.playerEntityId = this.world.createEntity();
+        this.renderRegistry.bind(this.playerEntityId, this.player);
+        this.world.transform.set(this.playerEntityId, {
+            x: this.player.position.x,
+            y: this.player.position.y,
+            z: this.player.position.z,
+            rx: 0,
+            ry: 0,
+            rz: 0,
+            sx: 1,
+            sy: 1,
+            sz: 1
+        });
+        this.world.velocity.set(this.playerEntityId, { x: 0, y: 0, z: 0 });
+        this.world.rotationQuat.set(this.playerEntityId, {
+            x: this.player.quaternion.x,
+            y: this.player.quaternion.y,
+            z: this.player.quaternion.z,
+            w: this.player.quaternion.w
+        });
         
         // Physics State
         this.currentSpeed = 0;

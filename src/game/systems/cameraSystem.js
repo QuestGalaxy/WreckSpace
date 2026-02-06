@@ -10,6 +10,8 @@ export class CameraSystem {
     this._worldOffset = new THREE.Vector3();
     this._lookTarget = new THREE.Vector3();
     this._playerUp = new THREE.Vector3();
+    this._playerPos = new THREE.Vector3();
+    this._playerQuat = new THREE.Quaternion();
   }
 
   /**
@@ -19,7 +21,10 @@ export class CameraSystem {
   update(dtSec, nowSec) {
     void nowSec;
     const g = this.game;
-    if (!g.player || !g.camera) return;
+    if (!g.playerEntityId || !g.camera) return;
+    const t = g.world.transform.get(g.playerEntityId);
+    const rq = g.world.rotationQuat.get(g.playerEntityId);
+    if (!t || !rq) return;
 
     const k = dtSec * 60;
     const follow = 1 - Math.pow(1 - 0.08, k);
@@ -38,13 +43,16 @@ export class CameraSystem {
       if (g.cameraShake > 0) g.cameraShake *= Math.pow(0.9, k);
     }
 
-    this._worldOffset.copy(this._idealOffset).applyMatrix4(g.player.matrixWorld);
+    this._playerPos.set(t.x, t.y, t.z);
+    this._playerQuat.set(rq.x, rq.y, rq.z, rq.w);
+
+    this._worldOffset.copy(this._idealOffset).applyQuaternion(this._playerQuat).add(this._playerPos);
     g.camera.position.lerp(this._worldOffset, follow);
 
-    this._lookTarget.set(0, 0, 60).applyMatrix4(g.player.matrixWorld);
+    this._lookTarget.set(0, 0, 60).applyQuaternion(this._playerQuat).add(this._playerPos);
     g.camera.lookAt(this._lookTarget);
 
-    this._playerUp.set(0, 1, 0).applyQuaternion(g.player.quaternion);
+    this._playerUp.set(0, 1, 0).applyQuaternion(this._playerQuat);
     g.camera.up.lerp(this._playerUp, upLerp);
 
     const targetFOV = g.keys['KeyZ'] ? 70 : 60;
@@ -52,4 +60,3 @@ export class CameraSystem {
     g.camera.updateProjectionMatrix();
   }
 }
-

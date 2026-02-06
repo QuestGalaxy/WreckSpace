@@ -44,33 +44,35 @@ export class EnvironmentSystem {
 
   updateSpaceDust() {
     const g = this.game;
-    if (!g.spaceDustPoints || !g.player) return;
+    if (!g.spaceDustPoints || !g.playerEntityId) return;
+    const t = g.world.transform.get(g.playerEntityId);
+    if (!t) return;
 
     const positions = g.spaceDustPoints.geometry.attributes.position.array;
     const range = 200;
     let needsUpdate = false;
 
     for (let i = 0; i < positions.length; i += 3) {
-      if (positions[i] < g.player.position.x - range) {
+      if (positions[i] < t.x - range) {
         positions[i] += range * 2;
         needsUpdate = true;
-      } else if (positions[i] > g.player.position.x + range) {
+      } else if (positions[i] > t.x + range) {
         positions[i] -= range * 2;
         needsUpdate = true;
       }
 
-      if (positions[i + 1] < g.player.position.y - range) {
+      if (positions[i + 1] < t.y - range) {
         positions[i + 1] += range * 2;
         needsUpdate = true;
-      } else if (positions[i + 1] > g.player.position.y + range) {
+      } else if (positions[i + 1] > t.y + range) {
         positions[i + 1] -= range * 2;
         needsUpdate = true;
       }
 
-      if (positions[i + 2] < g.player.position.z - range) {
+      if (positions[i + 2] < t.z - range) {
         positions[i + 2] += range * 2;
         needsUpdate = true;
-      } else if (positions[i + 2] > g.player.position.z + range) {
+      } else if (positions[i + 2] > t.z + range) {
         positions[i + 2] -= range * 2;
         needsUpdate = true;
       }

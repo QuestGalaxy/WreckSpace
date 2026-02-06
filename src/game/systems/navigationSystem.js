@@ -19,9 +19,14 @@ export class NavigationSystem {
     void dtSec;
     void nowSec;
     const g = this.game;
-    if (!g.hud || !g.baseStation || !g.player || !g.camera) return;
+    if (!g.hud || !g.baseStation || !g.playerEntityId || !g.camera) return;
+    const t = g.world.transform.get(g.playerEntityId);
+    if (!t) return;
 
-    const dist = g.player.position.distanceTo(g.baseStation.position);
+    const dx0 = t.x - g.baseStation.position.x;
+    const dy0 = t.y - g.baseStation.position.y;
+    const dz0 = t.z - g.baseStation.position.z;
+    const dist = Math.sqrt(dx0 * dx0 + dy0 * dy0 + dz0 * dz0);
 
     this._targetPos.copy(g.baseStation.position).project(g.camera);
 
@@ -76,4 +81,3 @@ export class NavigationSystem {
     g.hud.setBaseMarker({ x, y, angleDeg: angle, distM: dist, offScreen: isOffScreen });
   }
 }
-

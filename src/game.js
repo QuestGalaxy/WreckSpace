@@ -14,6 +14,7 @@ import { EnvironmentSystem } from './game/systems/environmentSystem.js';
 import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { World } from './game/world/world.js';
+import { RenderRegistry } from './render/syncFromWorld.js';
 
 export class Game {
     /**
@@ -38,7 +39,6 @@ export class Game {
         this.keys = this.input.keys;
         this.objects = [];
         this.bullets = [];
-        this.lootItems = [];
         this.particles = [];
         this.cameraShake = 0;
         this.isPaused = false;
@@ -63,6 +63,7 @@ export class Game {
         this._simTimeSec = 0;
 
         this.world = new World();
+        this.renderRegistry = new RenderRegistry();
 
         this.combat = new CombatSystem(this);
         this.loot = new LootSystem(this);

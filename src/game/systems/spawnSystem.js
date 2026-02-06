@@ -83,10 +83,10 @@ export class SpawnSystem {
       const loot = isGem ? this._acquireGemLoot() : this._acquireCoinLoot();
       loot.position.copy(obj.position);
       loot.rotation.set(0, 0, 0);
-      loot.scale.set(1, 1, 1);
+      // Scale is reset inside acquire() to the correct base (pooled instances may have been shrunk).
 
       const entityId = g.world.createLoot({ type: isGem ? 'gem' : 'coin', value: isGem ? 50 : 10 });
-      loot.userData.entityId = entityId;
+      g.renderRegistry.bind(entityId, loot);
 
       const sprayDir = new THREE.Vector3(
         (Math.random() - 0.5) * 2,
@@ -96,29 +96,43 @@ export class SpawnSystem {
         .normalize()
         .multiplyScalar(Math.random() * 20 + 10);
 
-      loot.userData = {
-        value: isGem ? 50 : 10,
-        type: isGem ? 'gem' : 'coin',
-        entityId,
-        velocity: sprayDir,
+      // Simulation state lives in World; keep mesh userData for render-only handles.
+      const ring = loot.userData.ring;
+      const glow = loot.userData.glow;
+      const baseScale = loot.userData.baseScale;
+      loot.userData = { ring, glow, baseScale, entityId };
+
+      g.world.transform.set(entityId, {
+        x: loot.position.x,
+        y: loot.position.y,
+        z: loot.position.z,
+        rx: 0,
+        ry: 0,
+        rz: 0,
+        sx: loot.scale.x,
+        sy: loot.scale.y,
+        sz: loot.scale.z
+      });
+      g.world.velocity.set(entityId, { x: sprayDir.x, y: sprayDir.y, z: sprayDir.z });
+      g.world.lootMotion.set(entityId, {
         rotationSpeed: {
           x: (Math.random() - 0.5) * 0.15,
           y: (Math.random() - 0.5) * 0.15,
           z: (Math.random() - 0.5) * 0.15
         },
         driftOffset: Math.random() * 100,
-        ring: loot.userData.ring,
-        glow: loot.userData.glow
-      };
+        floatBaseY: loot.position.y
+      });
 
       g.scene.add(loot);
-      g.lootItems.push(loot);
     }
   }
 
   releaseLoot(loot) {
     if (!loot) return;
     const kind = loot.userData?.type;
+    const entityId = loot.userData?.entityId;
+    if (entityId) this.game.renderRegistry.unbind(entityId);
     loot.visible = false;
     loot.userData = { ring: loot.userData?.ring, glow: loot.userData?.glow };
 
@@ -159,6 +173,7 @@ export class SpawnSystem {
     const loot = this._gemLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
+      loot.scale.setScalar(2.0);
       loot.material.color.setHex(0x00ffff);
       loot.material.emissive.setHex(0x00ffff);
       loot.material.emissiveIntensity = 1.5;
@@ -206,7 +221,7 @@ export class SpawnSystem {
     const light = new THREE.PointLight(0x00ffff, 5, 10);
     mesh.add(light);
 
-    mesh.userData = { ring, glow };
+    mesh.userData = { ring, glow, baseScale: { x: 2.0, y: 2.0, z: 2.0 } };
     return mesh;
   }
 
@@ -215,6 +230,7 @@ export class SpawnSystem {
     const loot = this._coinLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
+      loot.scale.set(1.5, 0.8, 2.5);
       loot.material.color.setHex(0xffd700);
       loot.material.emissive.setHex(0xffaa00);
       loot.material.emissiveIntensity = 0.8;
@@ -259,7 +275,7 @@ export class SpawnSystem {
     ring.rotation.x = Math.PI / 2;
     mesh.add(ring);
 
-    mesh.userData = { ring, glow };
+    mesh.userData = { ring, glow, baseScale: { x: 1.5, y: 0.8, z: 2.5 } };
     return mesh;
   }
 

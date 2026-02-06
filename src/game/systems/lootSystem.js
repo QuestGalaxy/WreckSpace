@@ -14,61 +14,85 @@ export class LootSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    void dtSec;
-    this.updateLoot(nowSec);
+    this.updateLoot(dtSec, nowSec);
     this.checkDeposit();
   }
 
   /**
+   * @param {number} dtSec
    * @param {number} nowSec
    */
-  updateLoot(nowSec) {
+  updateLoot(dtSec, nowSec) {
     const g = this.game;
+    const k = dtSec * 60;
 
-    for (let i = g.lootItems.length - 1; i >= 0; i--) {
-      const loot = g.lootItems[i];
+    for (const [entityId, meta] of g.world.loot) {
+      const t = g.world.transform.get(entityId);
+      const v = g.world.velocity.get(entityId);
+      const m = g.world.lootMotion.get(entityId);
+      if (!t || !v || !m) continue;
 
-      // 1. Physics: Move based on velocity (Drifting)
-      if (loot.userData.velocity) {
-        loot.position.add(loot.userData.velocity);
-        loot.userData.velocity.multiplyScalar(0.95); // Drag to slow down to a halt
-      }
+      // 1) Physics (drift)
+      t.x += v.x * k;
+      t.y += v.y * k;
+      t.z += v.z * k;
+      const drag = Math.pow(0.95, k);
+      v.x *= drag;
+      v.y *= drag;
+      v.z *= drag;
 
-      // 2. Gentle floating animation (Sine wave)
-      loot.position.y += Math.sin(nowSec * 2 + loot.userData.driftOffset) * 0.02;
+      // 2) Floating animation (absolute, avoids accumulated drift)
+      t.y = m.floatBaseY + Math.sin(nowSec * 2 + m.driftOffset) * 0.02;
 
-      // 3. Rotation
-      loot.rotation.x += loot.userData.rotationSpeed.x;
-      loot.rotation.y += loot.userData.rotationSpeed.y;
-      loot.rotation.z += loot.userData.rotationSpeed.z;
+      // 3) Rotation
+      t.rx += m.rotationSpeed.x * k;
+      t.ry += m.rotationSpeed.y * k;
+      t.rz += m.rotationSpeed.z * k;
 
-      // Rotate the holographic ring
-      const ring = loot.userData.ring ?? loot.children.find((c) => c.userData.isLootRing);
-      if (ring) {
-        ring.rotation.z += 0.05;
-        ring.material.opacity = 0.4 + Math.sin(nowSec * 5) * 0.2;
-      }
-
-      // Magnet effect if close
-      const dist = loot.position.distanceTo(g.player.position);
+      // 4) Magnet + collect check (player still lives in Three for now)
+      const dx = g.player.position.x - t.x;
+      const dy = g.player.position.y - t.y;
+      const dz = g.player.position.z - t.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const magnetRange = 50;
 
-      if (dist < magnetRange) {
-        this._dir.subVectors(g.player.position, loot.position).normalize();
-        const pullFactor = 1 - dist / magnetRange; // 0..1
-        const magnetStrength = pullFactor * 2.0;
-        loot.position.add(this._dir.multiplyScalar(magnetStrength));
+      if (dist < magnetRange && dist > 0.0001) {
+        const inv = 1 / dist;
+        const pullFactor = 1 - dist / magnetRange;
+        const magnetStrength = pullFactor * 2.0 * k;
+        t.x += dx * inv * magnetStrength;
+        t.y += dy * inv * magnetStrength;
+        t.z += dz * inv * magnetStrength;
 
-        if (dist < 10) loot.scale.multiplyScalar(0.9);
+        if (dist < 10) {
+          const shrink = Math.pow(0.9, k);
+          t.sx *= shrink;
+          t.sy *= shrink;
+          t.sz *= shrink;
+        }
+      }
+
+      // Sync mesh from world state (render side) and update ring visuals.
+      const lootObj = g.renderRegistry.get(entityId);
+      if (lootObj) {
+        lootObj.position.set(t.x, t.y, t.z);
+        lootObj.rotation.set(t.rx, t.ry, t.rz);
+        lootObj.scale.set(t.sx, t.sy, t.sz);
+
+        const ring = lootObj.userData?.ring;
+        if (ring) {
+          ring.rotation.z += 0.05 * k;
+          ring.material.opacity = 0.4 + Math.sin(nowSec * 5) * 0.2;
+        }
       }
 
       if (dist < 5) {
-        this.collectLoot(loot, i);
+        this.collectLootEntity(entityId, meta.value);
       }
     }
   }
 
-  collectLoot(loot, index) {
+  collectLootEntity(entityId, value) {
     const g = this.game;
     if (g.stats.storage >= g.stats.maxStorage) {
       g.showMessage('Storage Full! Return to base.');
@@ -76,14 +100,16 @@ export class LootSystem {
     }
 
     // Remove simulation entity first; mesh may be pooled.
-    if (loot.userData?.entityId) g.world.removeEntity(loot.userData.entityId);
+    g.world.removeEntity(entityId);
 
     g.stats.storage += 1;
-    g.stats.loot += loot.userData.value;
+    g.stats.loot += value;
     g.soundManager.playCollect();
-    g.scene.remove(loot);
-    g.lootItems.splice(index, 1);
-    if (g.spawner?.releaseLoot) g.spawner.releaseLoot(loot);
+    const lootObj = g.renderRegistry.get(entityId);
+    if (lootObj) {
+      g.scene.remove(lootObj);
+      if (g.spawner?.releaseLoot) g.spawner.releaseLoot(lootObj);
+    }
     g.updateHudStats();
   }
 

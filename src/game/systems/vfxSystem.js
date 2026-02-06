@@ -266,6 +266,15 @@ export class VfxSystem {
         if (Math.random() > 0.7) {
           this.spawnSmoke(p.position, p.scale.x * 0.5);
         }
+      } else if (p.userData.isVoxelDebris) {
+        p.rotation.x += p.userData.rotVelocity.x * k;
+        p.rotation.y += p.userData.rotVelocity.y * k;
+        p.rotation.z += p.userData.rotVelocity.z * k;
+        // Stronger drag keeps cubes closer and makes the effect feel more \"arcade\" than \"shrapnel\".
+        p.userData.velocity.multiplyScalar(Math.pow(0.97, k));
+        if (p.material && p.material.opacity != null) {
+          p.material.opacity *= Math.pow(0.965, k);
+        }
       } else if (p.userData.isSmoke) {
         p.scale.multiplyScalar(Math.pow(1.02, k));
         p.material.opacity *= Math.pow(0.95, k);
@@ -309,6 +318,8 @@ export class VfxSystem {
           }
         } else if (kind === 'fragment') {
           if (g.spawner?.releaseFragment) g.spawner.releaseFragment(p);
+        } else if (kind === 'voxelDebris') {
+          if (g.spawner?.releaseVoxelDebris) g.spawner.releaseVoxelDebris(p);
         } else if (kind === 'smoke') {
           if (this._smokePool.length < this._smokePoolLimit) {
             p.visible = false;

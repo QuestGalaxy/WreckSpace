@@ -137,7 +137,8 @@ export class HudController {
 
   crosshairSetLockedTransform() {
     if (!this.crosshair) return;
-    this.crosshair.style.transform = 'translate(-50%, -50%) rotate(45deg) scale(0.8)';
+    // Keep lock state readable but subtle (less "heavy" rotation/scale).
+    this.crosshair.style.transform = 'translate(-50%, -50%) rotate(12deg) scale(0.92)';
   }
 
   crosshairPulseFiring() {

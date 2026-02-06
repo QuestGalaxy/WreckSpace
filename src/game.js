@@ -13,11 +13,56 @@ import { NavigationSystem } from './game/systems/navigationSystem.js';
 import { EnvironmentSystem } from './game/systems/environmentSystem.js';
 import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
+import { VoxelDestructionSystem } from './game/systems/voxelDestructionSystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
 import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
 import { createVoxelTextures } from './render/voxelTextures.js';
 import { createVoxelShipModel } from './render/voxelShipFactory.js';
+
+function _key3(x, y, z) {
+    return `${x},${y},${z}`;
+}
+
+function _computeSurfaceKeys(filled) {
+    const dirs = [
+        [1, 0, 0],
+        [-1, 0, 0],
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, 1],
+        [0, 0, -1]
+    ];
+    const out = [];
+    for (const k of filled) {
+        const [xs, ys, zs] = k.split(',');
+        const x = Number(xs);
+        const y = Number(ys);
+        const z = Number(zs);
+        let surf = false;
+        for (const [dx, dy, dz] of dirs) {
+            if (!filled.has(_key3(x + dx, y + dy, z + dz))) {
+                surf = true;
+                break;
+            }
+        }
+        if (surf) out.push(k);
+    }
+    return out;
+}
+
+function _sampleFromArray(arr, count, rng = Math.random) {
+    const n = Math.min(count, arr.length);
+    // Partial Fisher-Yates shuffle into first n entries.
+    const a = arr.slice();
+    for (let i = 0; i < n; i++) {
+        const j = i + Math.floor(rng() * (a.length - i));
+        const tmp = a[i];
+        a[i] = a[j];
+        a[j] = tmp;
+    }
+    return a.slice(0, n);
+}
 
 export class Game {
     /**
@@ -76,6 +121,7 @@ export class Game {
         this.environment = new EnvironmentSystem(this);
         this.vfx = new VfxSystem(this);
         this.spawner = new SpawnSystem(this);
+        this.voxelDestruction = new VoxelDestructionSystem(this);
 
         /** @type {{ kind: 'base' | 'planet', target: any, sprite: THREE.Sprite, yOffset: number, prefix: string, lastText: string, baseScale: THREE.Vector3 }[]} */
         this.distanceLabelTargets = [];
@@ -519,9 +565,18 @@ export class Game {
                 // Normalize geometry so object scale remains a "radius-ish" number (used by collisions).
                 geo.computeBoundingSphere();
                 const br = geo.boundingSphere?.radius ?? 1;
-                if (br > 0.00001) geo.scale(1 / br, 1 / br, 1 / br);
+                const normScale = br > 0.00001 ? 1 / br : 1;
+                if (normScale !== 1) geo.scale(normScale, normScale, normScale);
                 geo.computeBoundingSphere();
-                this._voxelAsteroidVariants.push({ geo });
+                this._voxelAsteroidVariants.push({
+                    geo,
+                    filled,
+                    voxelSizeOriginal: this.voxel.size,
+                    normScale,
+                    shadeTop: 1.0,
+                    shadeSide: 0.92,
+                    shadeBottom: 0.78
+                });
             }
         }
 
@@ -560,8 +615,32 @@ export class Game {
                     x: (Math.random() - 0.5) * 0.01,
                     y: (Math.random() - 0.5) * 0.01,
                     z: (Math.random() - 0.5) * 0.01
-                }
+                },
+                voxel: null
             };
+
+            // Per-instance voxel state for destruction. (Variants share geometry; instances need their own filled set.)
+            {
+                const filled = new Set(variant.filled);
+                const surface = _computeSurfaceKeys(filled);
+                const rng = mulberry32(0xabc000 + i * 1777);
+                const resourceRate = 0.08;
+                const resourceCount = Math.max(2, Math.min(30, Math.floor(surface.length * resourceRate)));
+                const picks = _sampleFromArray(surface, resourceCount, rng);
+                const resource = new Set(picks);
+                asteroid.userData.voxel = {
+                    filled,
+                    resource,
+                    resourceRate,
+                    initialCount: filled.size,
+                    voxelSizeOriginal: variant.voxelSizeOriginal,
+                    normScale: variant.normScale,
+                    shadeTop: variant.shadeTop,
+                    shadeSide: variant.shadeSide,
+                    shadeBottom: variant.shadeBottom,
+                    lastRebuildAtSec: -999
+                };
+            }
             const entityId = this.world.createObject({
                 type: 'asteroid',
                 hp: scale * 5,
@@ -604,9 +683,10 @@ export class Game {
                 const geo = buildVoxelSurfaceGeometry(filled, { voxelSize: 1.0 });
                 geo.computeBoundingSphere();
                 const br = geo.boundingSphere?.radius ?? 1;
-                if (br > 0.00001) geo.scale(1 / br, 1 / br, 1 / br);
+                const normScale = br > 0.00001 ? 1 / br : 1;
+                if (normScale !== 1) geo.scale(normScale, normScale, normScale);
                 geo.computeBoundingSphere();
-                this._voxelPlanetVariants.push({ geo });
+                this._voxelPlanetVariants.push({ geo, filled, voxelSizeOriginal: 1.0, normScale });
             }
         }
 
@@ -628,7 +708,30 @@ export class Game {
             
             planet.userData = {
                 type: 'planet',
+                voxel: null
             };
+
+            {
+                const filled = new Set(variant.filled);
+                const surface = _computeSurfaceKeys(filled);
+                const rng = mulberry32(0xfeed000 + i * 991);
+                const resourceRate = 0.04;
+                const resourceCount = Math.max(8, Math.min(120, Math.floor(surface.length * resourceRate)));
+                const picks = _sampleFromArray(surface, resourceCount, rng);
+                const resource = new Set(picks);
+                planet.userData.voxel = {
+                    filled,
+                    resource,
+                    resourceRate,
+                    initialCount: filled.size,
+                    voxelSizeOriginal: variant.voxelSizeOriginal,
+                    normScale: variant.normScale,
+                    shadeTop: 1.0,
+                    shadeSide: 0.88,
+                    shadeBottom: 0.72,
+                    lastRebuildAtSec: -999
+                };
+            }
             const planetEntityId = this.world.createObject({
                 type: 'planet',
                 hp: 500,
@@ -774,6 +877,7 @@ export class Game {
         this.environment.update(dtSec, now);
         this.cameraSystem.update(dtSec, now);
         this.combat.update(dtSec, now);
+        this.voxelDestruction.update(dtSec, now);
         this.updateBaseMarker(dtSec, now);
 
         this.vfx.update(dtSec, now);

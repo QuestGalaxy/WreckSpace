@@ -479,11 +479,12 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
+    width: 44px;
+    height: 44px;
     pointer-events: none;
-    opacity: 0.8;
-    transition: transform 0.1s;
+    opacity: 0.72;
+    transition: transform 120ms ease-out, opacity 120ms ease-out;
+    will-change: left, top, transform;
 }
 
 .crosshair-ring {
@@ -492,40 +493,43 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    border: 2px solid rgba(0, 255, 255, 0.5);
+    border: 1px solid rgba(0, 255, 255, 0.35);
     border-radius: 50%;
-    box-shadow: 0 0 5px #0cf;
+    box-shadow: 0 0 4px rgba(0, 204, 255, 0.45);
     box-sizing: border-box;
+    transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
 }
 
 .crosshair-dot {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 4px;
-    height: 4px;
+    width: 3px;
+    height: 3px;
     background: #fff;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 4px #fff;
+    box-shadow: 0 0 3px rgba(255, 255, 255, 0.9);
+    transition: box-shadow 180ms ease-out, opacity 180ms ease-out;
 }
 
 .crosshair-line {
     position: absolute;
-    background: rgba(0, 255, 255, 0.3);
+    background: rgba(0, 255, 255, 0.18);
+    transition: background 180ms ease-out, opacity 180ms ease-out;
 }
 
 .crosshair-line.horizontal {
     top: 50%;
-    left: -20%;
-    width: 140%;
+    left: -10%;
+    width: 120%;
     height: 1px;
 }
 
 .crosshair-line.vertical {
     left: 50%;
-    top: -20%;
-    height: 140%;
+    top: -10%;
+    height: 120%;
     width: 1px;
 }
 
@@ -582,49 +586,50 @@ body {
 }
 
 /* CROSSHAIR ANIMATIONS */
-.hit {
-    animation: hit-pulse 0.15s ease-out;
-    border-color: #00ffff !important;
-    box-shadow: 0 0 20px #00ffff !important;
+#crosshair-container.hit .crosshair-ring {
+    border-color: rgba(150, 255, 255, 0.6);
+    animation: hit-ring 0.14s ease-out;
 }
 
-.firing {
-    transform: translate(-50%, -50%) scale(1.5);
-    border-color: #ffaa00 !important;
+#crosshair-container.firing .crosshair-ring {
+    border-color: rgba(255, 190, 90, 0.55);
+    animation: fire-ring 0.11s ease-out;
 }
 
 /* TARGET LOCK STYLES */
 .locked {
-    border-color: #ff0000 !important;
-    box-shadow: 0 0 15px #ff0000, inset 0 0 10px #ff0000 !important;
-    /* Transform handled in JS for positioning */
-    /* Transition for color and box-shadow, but NOT transform/left/top to avoid laggy tracking */
-    transition: border-color 0.2s, box-shadow 0.2s; 
+    opacity: 0.78;
+}
+
+#crosshair-container.locked .crosshair-ring {
+    border-color: rgba(255, 80, 80, 0.30);
+    box-shadow: 0 0 6px rgba(255, 90, 90, 0.35), inset 0 0 6px rgba(255, 90, 90, 0.18);
+}
+
+#crosshair-container.locked .crosshair-line {
+    background: rgba(255, 90, 90, 0.12);
+}
+
+#crosshair-container.locked .crosshair-dot {
+    opacity: 0.92;
+    box-shadow: 0 0 4px rgba(255, 140, 140, 0.55);
 }
 
 /* Smooth return to center when unlocked */
 #crosshair-container:not(.locked) {
-    transition: left 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), top 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.2s;
+    transition: left 120ms ease-out, top 120ms ease-out, transform 120ms ease-out, opacity 120ms ease-out;
 }
 
-.locked::after {
-    content: '';
-    position: absolute;
-    top: -10px; left: -10px; right: -10px; bottom: -10px;
-    border: 2px dashed #ff0000;
-    border-radius: 50%;
-    animation: spin 2s linear infinite;
+@keyframes hit-ring {
+    0% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    55% { box-shadow: 0 0 12px rgba(150, 255, 255, 0.75); }
+    100% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
 }
 
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-@keyframes hit-pulse {
-    0% { transform: translate(-50%, -50%) scale(1); }
-    50% { transform: translate(-50%, -50%) scale(2.5); opacity: 0.8; }
-    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+@keyframes fire-ring {
+    0% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    60% { box-shadow: 0 0 10px rgba(255, 190, 90, 0.70); }
+    100% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
 }
 
 /* MESSAGES */

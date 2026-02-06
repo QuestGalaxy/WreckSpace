@@ -12,6 +12,7 @@ export class SpawnSystem {
     this._fragmentGeo = new THREE.BoxGeometry(1, 1, 1);
     this._gemGeo = new THREE.BoxGeometry(1, 1, 1);
     this._coinGeo = new THREE.BoxGeometry(1, 1, 1);
+    this._voxelDebrisGeo = new THREE.BoxGeometry(1, 1, 1);
 
     /** @type {THREE.Mesh[]} */
     this._fragmentPool = [];
@@ -19,9 +20,22 @@ export class SpawnSystem {
     this._gemLootPool = [];
     /** @type {THREE.Mesh[]} */
     this._coinLootPool = [];
+    /** @type {THREE.Mesh[]} */
+    this._voxelDebrisPool = [];
 
     this._fragmentPoolLimit = 200;
     this._lootPoolLimit = 200;
+    this._voxelDebrisPoolLimit = 1600;
+
+    // Scratch
+    this._tmpL = new THREE.Vector3();
+    this._tmpW = new THREE.Vector3();
+    this._tmpDir = new THREE.Vector3();
+    this._tmpDir2 = new THREE.Vector3();
+
+    // Scratch colors for debris tinting (avoid allocations in hot paths).
+    this._tmpColor = new THREE.Color();
+    this._tmpColor2 = new THREE.Color();
   }
 
   /**
@@ -30,6 +44,14 @@ export class SpawnSystem {
    * @param {THREE.Mesh} obj
    */
   spawnOnDestroyed(obj) {
+    // Voxel bodies get a dedicated \"cube explosion\"; don't also spawn large fragments (too noisy).
+    if (obj?.userData?.voxel?.filled) {
+      this.spawnVoxelExplosion(obj);
+      // Loot is now driven mainly by resource voxels; keep a tiny bonus sprinkle so destruction still rewards.
+      this.spawnLoot(obj, { scale: 0.25 });
+      return;
+    }
+
     this.spawnFragments(obj);
     this.spawnLoot(obj);
   }
@@ -74,9 +96,11 @@ export class SpawnSystem {
   /**
    * @param {THREE.Mesh} obj
    */
-  spawnLoot(obj) {
+  spawnLoot(obj, opts = {}) {
     const g = this.game;
-    const count = obj.userData.type === 'planet' ? 20 : 3;
+    const scale = opts.scale ?? 1.0;
+    const baseCount = obj.userData.type === 'planet' ? 20 : 3;
+    const count = Math.max(0, Math.floor(baseCount * scale));
 
     for (let i = 0; i < count; i++) {
       const isGem = Math.random() > 0.8;
@@ -129,6 +153,275 @@ export class SpawnSystem {
     }
   }
 
+  /**
+   * Called from VoxelDestructionSystem: small cube burst at the hit point.
+   * @param {{obj: THREE.Mesh, hitWorldPos: THREE.Vector3, bulletVelWorld: THREE.Vector3, debrisPositions: THREE.Vector3[], resourcePositions: THREE.Vector3[]}} info
+   */
+  spawnVoxelImpact(info) {
+    const g = this.game;
+    const { obj, hitWorldPos, bulletVelWorld, debrisPositions, resourcePositions } = info;
+    if (!g.scene) return;
+
+    const vox = obj?.userData?.voxel;
+    const ws = g.worldScale ?? 1;
+    const cellWorld = (obj.scale.x ?? 1) * (vox?.voxelSizeOriginal ?? 1) * (vox?.normScale ?? 1);
+    const cubeSize = THREE.MathUtils.clamp(cellWorld * 0.65, 0.45 * ws, 6 * ws);
+
+    // Debris cubes (particles)
+    const maxDebris = obj.userData.type === 'planet' ? 16 : 9;
+    const nDebris = Math.min(maxDebris, debrisPositions.length);
+
+    for (let i = 0; i < nDebris; i++) {
+      const p = debrisPositions[i];
+      const debris = this._acquireVoxelDebris(obj);
+      this._tintVoxelDebrisToSource(debris, obj);
+      debris.position.copy(p);
+      debris.scale.setScalar(cubeSize * (0.85 + Math.random() * 0.35));
+      debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+      this._tmpDir.copy(p).sub(obj.position).normalize();
+      this._tmpDir2.copy(bulletVelWorld).normalize();
+      this._tmpW.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+      this._tmpDir
+        .multiplyScalar(0.85)
+        .addScaledVector(this._tmpDir2, 0.28)
+        .addScaledVector(this._tmpW, 0.45)
+        .normalize();
+
+      // Keep impact debris readable: slower + tighter spread.
+      const speed = (obj.userData.type === 'planet' ? 0.04 : 0.08) * (obj.scale.x ?? 1) + (2.2 * ws);
+      const life = (obj.userData.type === 'planet' ? 70 : 45) + Math.random() * 35;
+      debris.userData = {
+        isVoxelDebris: true,
+        velocity: new THREE.Vector3().copy(this._tmpDir).multiplyScalar(speed * (0.55 + Math.random() * 0.55)),
+        rotVelocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.14,
+          (Math.random() - 0.5) * 0.14,
+          (Math.random() - 0.5) * 0.14
+        ),
+        life,
+        initialLife: life,
+        baseOpacity: 0.98,
+        _poolKind: 'voxelDebris'
+      };
+
+      g.scene.add(debris);
+      g.particles.push(debris);
+    }
+
+    // Resource cubes become collectible loot (gems/coins) thrown outward.
+    const maxLoot = obj.userData.type === 'planet' ? 7 : 3;
+    const nLoot = Math.min(maxLoot, resourcePositions.length);
+    for (let i = 0; i < nLoot; i++) {
+      const p = resourcePositions[i];
+      const isGem = Math.random() > 0.55;
+      const loot = isGem ? this._acquireGemLoot() : this._acquireCoinLoot();
+      loot.position.copy(p);
+      loot.rotation.set(0, 0, 0);
+
+      const entityId = g.world.createLoot({ type: isGem ? 'gem' : 'coin', value: isGem ? 50 : 10 });
+      g.renderRegistry.bind(entityId, loot);
+
+      this._tmpDir.copy(p).sub(obj.position).normalize();
+      const vel = this._tmpDir.multiplyScalar((obj.userData.type === 'planet' ? 0.05 : 0.10) * (obj.scale.x ?? 1) + (7 * ws));
+
+      const ring = loot.userData.ring;
+      const glow = loot.userData.glow;
+      const baseScale = loot.userData.baseScale;
+      loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
+
+      g.world.transform.set(entityId, {
+        x: loot.position.x,
+        y: loot.position.y,
+        z: loot.position.z,
+        rx: 0,
+        ry: 0,
+        rz: 0,
+        sx: loot.scale.x,
+        sy: loot.scale.y,
+        sz: loot.scale.z
+      });
+      g.world.velocity.set(entityId, { x: vel.x, y: vel.y, z: vel.z });
+      g.world.lootMotion.set(entityId, {
+        rotationSpeed: {
+          x: (Math.random() - 0.5) * 0.15,
+          y: (Math.random() - 0.5) * 0.15,
+          z: (Math.random() - 0.5) * 0.15
+        },
+        driftOffset: Math.random() * 100,
+        floatBaseY: loot.position.y
+      });
+
+      g.scene.add(loot);
+    }
+
+    void hitWorldPos;
+  }
+
+  /**
+   * If a voxel object is carved fully away (filled set hits 0 before HP logic triggers),
+   * we still want a satisfying final cube burst.
+   * @param {{obj: THREE.Mesh, hitWorldPos: THREE.Vector3, bulletVelWorld: THREE.Vector3}} info
+   */
+  spawnVoxelFinalBurst(info) {
+    const g = this.game;
+    const { obj, hitWorldPos, bulletVelWorld } = info;
+    if (!g.scene) return;
+
+    const vox = obj?.userData?.voxel;
+    const ws = g.worldScale ?? 1;
+    const cellWorld = (obj.scale.x ?? 1) * (vox?.voxelSizeOriginal ?? 1) * (vox?.normScale ?? 1);
+    const cubeSize = THREE.MathUtils.clamp(cellWorld * 0.8, 0.65 * ws, 8 * ws);
+
+    const isPlanet = obj.userData.type === 'planet';
+    const count = isPlanet ? 160 : 55;
+
+    const velN = this._tmpDir2.copy(bulletVelWorld).normalize();
+    for (let i = 0; i < count; i++) {
+      const debris = this._acquireVoxelDebris(obj);
+      this._tintVoxelDebrisToSource(debris, obj);
+      this._tmpW.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+      debris.position.copy(hitWorldPos).addScaledVector(this._tmpW, cubeSize * (0.7 + Math.random() * 0.9));
+      debris.scale.setScalar(cubeSize * (0.65 + Math.random() * 0.65));
+      debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+      this._tmpDir.copy(debris.position).sub(obj.position).normalize();
+      this._tmpDir.addScaledVector(velN, 0.25).addScaledVector(this._tmpW, 0.25).normalize();
+
+      const speed = (isPlanet ? 0.06 : 0.12) * (obj.scale.x ?? 1) + (8.5 * ws);
+      const life = (isPlanet ? 180 : 120) + Math.random() * (isPlanet ? 160 : 80);
+      debris.userData = {
+        isVoxelDebris: true,
+        velocity: new THREE.Vector3().copy(this._tmpDir).multiplyScalar(speed * (0.5 + Math.random() * 0.45)),
+        rotVelocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.22,
+          (Math.random() - 0.5) * 0.22,
+          (Math.random() - 0.5) * 0.22
+        ),
+        life,
+        initialLife: life,
+        baseOpacity: 0.98,
+        _poolKind: 'voxelDebris'
+      };
+      g.scene.add(debris);
+      g.particles.push(debris);
+    }
+  }
+
+  /**
+   * Full-destruction: lots of small cubes thrown outward from remaining voxels.
+   * @param {THREE.Mesh} obj
+   */
+  spawnVoxelExplosion(obj) {
+    const g = this.game;
+    if (!g.scene) return;
+    if (!g.particles) g.particles = [];
+
+    const vox = obj?.userData?.voxel;
+    if (!vox?.filled || vox.filled.size === 0) return;
+
+    const ws = g.worldScale ?? 1;
+    const isPlanet = obj.userData.type === 'planet';
+    const cellWorld = (obj.scale.x ?? 1) * (vox.voxelSizeOriginal ?? 1) * (vox.normScale ?? 1);
+    const cubeSize = THREE.MathUtils.clamp(cellWorld * 0.7, 0.55 * ws, 7 * ws);
+
+    // Sample remaining voxels for debris positions.
+    const maxDebris = isPlanet ? 220 : 50;
+    const keys = this._sampleFromSet(vox.filled, maxDebris);
+    const debrisPositions = this._keysToWorldPositions(obj, vox, keys);
+
+    for (let i = 0; i < debrisPositions.length; i++) {
+      const p = debrisPositions[i];
+      const debris = this._acquireVoxelDebris(obj);
+      this._tintVoxelDebrisToSource(debris, obj);
+      debris.position.copy(p);
+      debris.scale.setScalar(cubeSize * (0.75 + Math.random() * 0.55));
+      debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+      this._tmpDir.copy(p).sub(obj.position).normalize();
+      this._tmpW.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+      this._tmpDir.addScaledVector(this._tmpW, 0.45).normalize();
+
+      // Big explosion should still read \"chunky\", but not eject cubes into infinity.
+      const speed = (isPlanet ? 0.05 : 0.10) * (obj.scale.x ?? 1) + (5.5 * ws);
+      const life = (isPlanet ? 140 : 95) + Math.random() * (isPlanet ? 120 : 70);
+      debris.userData = {
+        isVoxelDebris: true,
+        velocity: new THREE.Vector3().copy(this._tmpDir).multiplyScalar(speed * (0.5 + Math.random() * 0.45)),
+        rotVelocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.18,
+          (Math.random() - 0.5) * 0.18,
+          (Math.random() - 0.5) * 0.18
+        ),
+        life,
+        initialLife: life,
+        baseOpacity: 0.98,
+        _poolKind: 'voxelDebris'
+      };
+      g.scene.add(debris);
+      g.particles.push(debris);
+    }
+
+    // Remaining resource voxels become loot.
+    if (vox.resource && vox.resource.size > 0) {
+      const maxLoot = isPlanet ? 20 : 8;
+      const lootKeys = this._sampleFromSet(vox.resource, maxLoot);
+      const lootPositions = this._keysToWorldPositions(obj, vox, lootKeys);
+      for (let i = 0; i < lootPositions.length; i++) {
+        const p = lootPositions[i];
+        const isGem = Math.random() > 0.5;
+        const loot = isGem ? this._acquireGemLoot() : this._acquireCoinLoot();
+        loot.position.copy(p);
+        loot.rotation.set(0, 0, 0);
+
+        const entityId = g.world.createLoot({ type: isGem ? 'gem' : 'coin', value: isGem ? 50 : 10 });
+        g.renderRegistry.bind(entityId, loot);
+
+        this._tmpDir.copy(p).sub(obj.position).normalize();
+        const vel = this._tmpDir.multiplyScalar((isPlanet ? 0.06 : 0.12) * (obj.scale.x ?? 1) + (12 * ws));
+
+        const ring = loot.userData.ring;
+        const glow = loot.userData.glow;
+        const baseScale = loot.userData.baseScale;
+        loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
+
+        g.world.transform.set(entityId, {
+          x: loot.position.x,
+          y: loot.position.y,
+          z: loot.position.z,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: loot.scale.x,
+          sy: loot.scale.y,
+          sz: loot.scale.z
+        });
+        g.world.velocity.set(entityId, { x: vel.x, y: vel.y, z: vel.z });
+        g.world.lootMotion.set(entityId, {
+          rotationSpeed: {
+            x: (Math.random() - 0.5) * 0.15,
+            y: (Math.random() - 0.5) * 0.15,
+            z: (Math.random() - 0.5) * 0.15
+          },
+          driftOffset: Math.random() * 100,
+          floatBaseY: loot.position.y
+        });
+
+        g.scene.add(loot);
+      }
+    }
+
+    void cellWorld;
+  }
+
+  releaseVoxelDebris(mesh) {
+    if (!mesh) return;
+    mesh.visible = false;
+    // Preserve material instance for reuse; userData reset on acquire.
+    mesh.userData = {};
+    if (this._voxelDebrisPool.length < this._voxelDebrisPoolLimit) this._voxelDebrisPool.push(mesh);
+  }
+
   releaseLoot(loot) {
     if (!loot) return;
     const kind = loot.userData?.type;
@@ -167,6 +460,90 @@ export class SpawnSystem {
     const mat = srcMat.clone();
     const mesh = new THREE.Mesh(this._fragmentGeo, mat);
     return mesh;
+  }
+
+  _acquireVoxelDebris(obj) {
+    const srcMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    const mesh = this._voxelDebrisPool.pop() ?? null;
+    if (mesh) {
+      mesh.visible = true;
+      // Match color; keep it cheap (no vertexColors).
+      if (mesh.material && srcMat && srcMat.color) mesh.material.color.copy(srcMat.color);
+      if (mesh.material && srcMat && srcMat.map !== undefined) mesh.material.map = srcMat.map ?? null;
+      if (mesh.material) {
+        // Debris should feel like solid chunks of the body, not glowing VFX.
+        if (mesh.material.emissive) mesh.material.emissive.setHex(0x000000);
+        mesh.material.emissiveIntensity = 0.0;
+        mesh.material.opacity = 0.98;
+        mesh.material.transparent = true;
+        mesh.material.vertexColors = false;
+        mesh.material.needsUpdate = true;
+      }
+      return mesh;
+    }
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: srcMat?.color?.getHex?.() ?? 0x888888,
+      map: srcMat?.map ?? null,
+      emissive: 0x000000,
+      emissiveIntensity: 0.0,
+      roughness: srcMat?.roughness ?? 1.0,
+      metalness: srcMat?.metalness ?? 0.0,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.98,
+      vertexColors: false
+    });
+    return new THREE.Mesh(this._voxelDebrisGeo, mat);
+  }
+
+  _tintVoxelDebrisToSource(debris, srcObj) {
+    const srcMat = Array.isArray(srcObj.material) ? srcObj.material[0] : srcObj.material;
+    if (!debris?.material?.color || !srcMat?.color) return;
+
+    // Keep hue the same but introduce subtle value variation so it reads as "real chunks".
+    // Planet chunks: a bit tighter range (cleaner look); asteroid chunks: slightly wider (rocky).
+    const isPlanet = srcObj?.userData?.type === 'planet';
+    const f = isPlanet ? 0.92 + Math.random() * 0.12 : 0.86 + Math.random() * 0.22; // multiply in linear-ish space
+
+    this._tmpColor.copy(srcMat.color);
+    this._tmpColor2.copy(this._tmpColor).multiplyScalar(f);
+    debris.material.color.copy(this._tmpColor2);
+
+    // Start near-opaque; fade is handled in VfxSystem over lifetime.
+    if (debris.material.opacity != null) debris.material.opacity = 0.98;
+    debris.material.transparent = true;
+  }
+
+  _sampleFromSet(set, count) {
+    const res = [];
+    let i = 0;
+    for (const k of set) {
+      if (res.length < count) res.push(k);
+      else {
+        const j = Math.floor(Math.random() * (i + 1));
+        if (j < count) res[j] = k;
+      }
+      i++;
+    }
+    return res;
+  }
+
+  _keysToWorldPositions(obj, vox, keys) {
+    const cellLocal = (vox.voxelSizeOriginal ?? 1) * (vox.normScale ?? 1);
+    const out = [];
+    obj.updateMatrixWorld(true);
+    for (const k of keys) {
+      const [xs, ys, zs] = k.split(',');
+      const x = Number(xs);
+      const y = Number(ys);
+      const z = Number(zs);
+      this._tmpL.set(x * cellLocal, y * cellLocal, z * cellLocal);
+      this._tmpW.copy(this._tmpL);
+      obj.localToWorld(this._tmpW);
+      out.push(this._tmpW.clone());
+    }
+    return out;
   }
 
   _acquireGemLoot() {

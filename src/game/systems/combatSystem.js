@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 
+function key3(x, y, z) {
+  return `${x},${y},${z}`;
+}
+
 export class CombatSystem {
   /**
    * @param {import('../../game.js').Game} game
@@ -18,6 +22,11 @@ export class CombatSystem {
     this._playerQuat = new THREE.Quaternion();
     this._noseWorld = new THREE.Vector3();
     this._camSpace = new THREE.Vector3();
+    this._hitLocal = new THREE.Vector3();
+
+    // Screen-space crosshair smoothing (avoid jitter on distant targets + camera shake).
+    this._crosshairX = null;
+    this._crosshairY = null;
   }
 
   /**
@@ -25,11 +34,11 @@ export class CombatSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    this.updateTargetLock(nowSec);
+    this.updateTargetLock(dtSec, nowSec);
     this.updateBullets(dtSec);
   }
 
-  updateTargetLock(nowSec) {
+  updateTargetLock(dtSec, nowSec) {
     const g = this.game;
     if (!g.playerEntityId || !g.camera) return;
     const pt = g.world.transform.get(g.playerEntityId);
@@ -73,9 +82,54 @@ export class CombatSystem {
       return true;
     };
 
+    const updateLockedHud = () => {
+      if (!g.hud) return;
+
+      // Convert NDC to screen-space px.
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const centerX = w * 0.5;
+      const centerY = h * 0.5;
+      const targetX = (this._targetPos.x * 0.5 + 0.5) * w;
+      const targetY = (this._targetPos.y * -0.5 + 0.5) * h;
+
+      // Distant targets tend to jitter more (float precision + camera shake).
+      // Add distance-based smoothing and a slight "pull to center" so lock feels softer.
+      const depth = Math.max(0.0001, -this._camSpace.z); // camera-space forward distance (positive)
+      const depthNear = 80 * ws;
+      const depthFar = maxDist;
+      const depthT = THREE.MathUtils.clamp((depth - depthNear) / Math.max(0.0001, depthFar - depthNear), 0, 1);
+
+      const pullToCenterNear = 0.0;
+      const pullToCenterFar = 0.18;
+      const pull = THREE.MathUtils.lerp(pullToCenterNear, pullToCenterFar, depthT);
+      const desiredX = THREE.MathUtils.lerp(targetX, centerX, pull);
+      const desiredY = THREE.MathUtils.lerp(targetY, centerY, pull);
+
+      // Exponential smoothing (frame-rate independent).
+      const followHzNear = 18;
+      const followHzFar = 10;
+      const followHz = THREE.MathUtils.lerp(followHzNear, followHzFar, depthT);
+      const a = 1 - Math.exp(-Math.max(0, dtSec) * followHz);
+
+      if (this._crosshairX == null || this._crosshairY == null) {
+        this._crosshairX = desiredX;
+        this._crosshairY = desiredY;
+      } else {
+        this._crosshairX = THREE.MathUtils.lerp(this._crosshairX, desiredX, a);
+        this._crosshairY = THREE.MathUtils.lerp(this._crosshairY, desiredY, a);
+      }
+
+      g.hud.crosshairSetLocked(true);
+      g.hud.crosshairSetScreenPos(this._crosshairX, this._crosshairY);
+      g.hud.crosshairSetLockedTransform();
+    };
+
     const unlock = () => {
       g.currentTargetEntityId = null;
       g._lockSuppressUntilSec = nowSec + 0.15;
+      this._crosshairX = null;
+      this._crosshairY = null;
       if (!g.hud) return;
       if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
       else {
@@ -102,13 +156,7 @@ export class CombatSystem {
       }
 
       // Still locked: update HUD position.
-      if (g.hud) {
-        g.hud.crosshairSetLocked(true);
-        const x = (this._targetPos.x * 0.5 + 0.5) * window.innerWidth;
-        const y = (this._targetPos.y * -0.5 + 0.5) * window.innerHeight;
-        g.hud.crosshairSetScreenPos(x, y);
-        g.hud.crosshairSetLockedTransform();
-      }
+      updateLockedHud();
       return;
     }
 
@@ -148,7 +196,6 @@ export class CombatSystem {
 
     if (!g.hud) return;
     if (g.currentTargetEntityId) {
-      g.hud.crosshairSetLocked(true);
       const t = g.world.transform.get(g.currentTargetEntityId);
       if (!t) {
         // Target was destroyed mid-frame (lock runs before bullet collisions).
@@ -156,12 +203,12 @@ export class CombatSystem {
         return;
       }
       this._targetWorldPos.set(t.x, t.y, t.z);
+      this._camSpace.copy(this._targetWorldPos).applyMatrix4(g.camera.matrixWorldInverse);
       this._targetPos.copy(this._targetWorldPos).project(g.camera);
-      const x = (this._targetPos.x * 0.5 + 0.5) * window.innerWidth;
-      const y = (this._targetPos.y * -0.5 + 0.5) * window.innerHeight;
-      g.hud.crosshairSetScreenPos(x, y);
-      g.hud.crosshairSetLockedTransform();
+      updateLockedHud();
     } else {
+      this._crosshairX = null;
+      this._crosshairY = null;
       g.hud.crosshairSetLocked(false);
       g.hud.crosshairResetToCenter();
     }
@@ -310,24 +357,62 @@ export class CombatSystem {
         const dy = by - t.y;
         const dz = bz - t.z;
         const dist2 = dx * dx + dy * dy + dz * dz;
-        const radius = t.sx; // objects are uniformly scaled
-        if (dist2 > radius * radius) return false;
-
         const obj = g.renderRegistry.get(entityId);
         if (!obj) return false;
 
+        // Use geometry radius if it changed due to voxel carving.
+        const geoR = obj.geometry?.boundingSphere?.radius ?? 1;
+        const radius = (t.sx ?? 1) * geoR; // objects are uniformly scaled
+        if (dist2 > radius * radius) return false;
+
+        // Voxel-aware hit test so shots pass through carved holes.
+        const vox = obj.userData?.voxel;
+        if (vox?.filled && vox.filled.size > 0) {
+          obj.updateMatrixWorld(true);
+          this._hitLocal.copy(b.position);
+          obj.worldToLocal(this._hitLocal);
+          const cellLocal = (vox.voxelSizeOriginal ?? 1) * (vox.normScale ?? 1);
+          if (cellLocal > 0.000001) {
+            const cx = Math.round(this._hitLocal.x / cellLocal);
+            const cy = Math.round(this._hitLocal.y / cellLocal);
+            const cz = Math.round(this._hitLocal.z / cellLocal);
+            let ok = false;
+            for (let dz2 = -1; dz2 <= 1 && !ok; dz2++) {
+              for (let dy2 = -1; dy2 <= 1 && !ok; dy2++) {
+                for (let dx2 = -1; dx2 <= 1; dx2++) {
+                  if (vox.filled.has(key3(cx + dx2, cy + dy2, cz + dz2))) {
+                    ok = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (!ok) return false;
+          }
+        }
+
           // Subtle hit flash
           if (obj.material) {
-            const originalIntensity = obj.userData.type === 'planet' ? 0.1 : 0;
-            const originalColor = obj.userData.type === 'planet' ? obj.material.color.getHex() : 0x000000;
+            const isPlanet = obj.userData.type === 'planet';
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            const saved = mats.map((m) => ({
+              m,
+              emissive: m?.emissive?.getHex?.() ?? null,
+              intensity: typeof m?.emissiveIntensity === 'number' ? m.emissiveIntensity : null
+            }));
 
-            obj.material.emissive.setHex(0xffffff);
-            obj.material.emissiveIntensity = 0.25; // Significantly reduced for elegance
+            for (const m of mats) {
+              if (!m?.emissive?.setHex) continue;
+              m.emissive.setHex(0xffffff);
+              m.emissiveIntensity = isPlanet ? 0.14 : 0.22;
+            }
 
             setTimeout(() => {
-              if (obj && obj.material) {
-                obj.material.emissiveIntensity = originalIntensity;
-                obj.material.emissive.setHex(originalColor);
+              for (const s of saved) {
+                const m = s.m;
+                if (!m?.emissive?.setHex) continue;
+                if (s.emissive != null) m.emissive.setHex(s.emissive);
+                if (s.intensity != null) m.emissiveIntensity = s.intensity;
               }
             }, 60);
           }
@@ -335,6 +420,11 @@ export class CombatSystem {
           g.vfx.createHitEffect(b.position);
           g.soundManager.playHit();
           const h = g.world.damage(entityId, g.shipData.weaponPower);
+
+          // Voxel destruction: pop cubes from the impact point and carve the object.
+          if (g.voxelDestruction?.onHit) {
+            g.voxelDestruction.onHit(entityId, b.position, b.userData.velocity, g.shipData.weaponPower);
+          }
 
           // Sticky lock: if you hit a planet, lock it; turning away will release.
           if (obj.userData?.type === 'planet') {

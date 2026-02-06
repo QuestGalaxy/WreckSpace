@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SoundManager } from './soundManager.js';
 import { FixedTimestepLoop } from './core/fixedTimestepLoop.js';
 import { KeyboardInput } from './input/keyboard.js';
@@ -15,6 +16,8 @@ import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
+import { RetroCrtShader } from './render/retroCrtShader.js';
+import { createToonGradientMap } from './render/toonGradient.js';
 
 export class Game {
     /**
@@ -79,15 +82,21 @@ export class Game {
 
         /** @type {number|null} */
         this.playerEntityId = null;
+
+        // Visual direction: Retro 90s / toon-ish 3D (this branch experiment).
+        this.visual = {
+            retroEnabled: true,
+            crtEnabled: true
+        };
     }
 
     init() {
         // Scene setup
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x020205); // Deep space blue/black
-        
-        // Add space fog for depth and nebula feel
-        this.scene.fog = new THREE.FogExp2(0x050510, 0.0008);
+        // Lift the blacks a lot; CRT pass will add grit via scanlines/mask.
+        this.scene.background = new THREE.Color(0x15162c);
+        // Reduce realism: keep fog very subtle, more "gamey" than cinematic.
+        this.scene.fog = new THREE.FogExp2(0x0a0b1e, 0.00022);
 
         // Camera setup - Reduced FOV to 60 for less distortion
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
@@ -95,37 +104,74 @@ export class Game {
         // Renderer setup
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
-            antialias: true
+            // Retro look: let CRT pass control the "pixel" feel, keep AA off.
+            antialias: false
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.toneMapping = THREE.ReinhardToneMapping;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        // Avoid "filmic" realism; keep it simple.
+        this.renderer.toneMapping = THREE.NoToneMapping;
 
         // Post-processing
         const renderScene = new RenderPass(this.scene, this.camera);
         
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            1.5, // strength
-            0.4, // radius
-            0.1  // threshold - lowered to make more things glow
+            0.7, // strength (reduced)
+            0.2, // radius (reduced)
+            0.2  // threshold (reduced glow spam)
         );
         
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(renderScene);
-        this.composer.addPass(bloomPass);
+        if (!this.visual.retroEnabled) {
+            this.composer.addPass(bloomPass);
+        } else {
+            // Keep bloom very subtle in retro mode; mostly rely on emissive/additive + CRT.
+            this.composer.addPass(bloomPass);
+            bloomPass.strength = 0.35;
+            bloomPass.radius = 0.1;
+            bloomPass.threshold = 0.35;
+        }
+
+        // CRT / pixel / quantization pass
+        this._retroPass = new ShaderPass(RetroCrtShader);
+        this._retroPass.enabled = !!this.visual.crtEnabled;
+        this._retroPass.material.uniforms.uResolution.value.set(
+            window.innerWidth * window.devicePixelRatio,
+            window.innerHeight * window.devicePixelRatio
+        );
+        // Strong defaults so the CRT/retro look is obvious.
+        const dpr = window.devicePixelRatio || 1;
+        this._retroPass.material.uniforms.uPixelSize.value = 3.0 * dpr; // ~3 CSS px blocks
+        this._retroPass.material.uniforms.uScanline.value = 0.7;
+        this._retroPass.material.uniforms.uVignette.value = 0.35;
+        this._retroPass.material.uniforms.uCurvature.value = 0.11;
+        this._retroPass.material.uniforms.uChroma.value = 1.4 * dpr;
+        this._retroPass.material.uniforms.uNoise.value = 0.07;
+        this._retroPass.material.uniforms.uMask.value = 0.65;
+        this._retroPass.material.uniforms.uLevels.value = 18.0;
+        this._retroPass.material.uniforms.uDither.value = 1.0;
+        this._retroPass.material.uniforms.uContrast.value = 0.95;
+        this._retroPass.material.uniforms.uBrightness.value = 1.28;
+        if (this.visual.retroEnabled) this.composer.addPass(this._retroPass);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0x404040, 2);
+        // Stylized lighting: brighter ambient + a single key light.
+        const ambientLight = new THREE.AmbientLight(0x8b8bb0, 2.35);
         this.scene.add(ambientLight);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
         sunLight.position.set(100, 100, 100);
         this.scene.add(sunLight);
 
-        // Stars
-        this.createStars();
-        this.createSpaceDust(); // Add space dust for speed sensation
+        // Shared toon ramp used by MeshToonMaterial instances.
+        this._toonGradientMap = createToonGradientMap();
+
+        // Backdrop
+        this.createRetroBackdrop();
+        this.createSpaceDust(); // still useful for speed feel; CRT pass stylizes it
 
         // Base Station
         this.createBaseStation();
@@ -142,6 +188,14 @@ export class Game {
             if (e.code === 'Space') this.shoot();
         };
         window.addEventListener('keydown', this._onKeyDownShoot);
+        // Debug toggles for experimentation on this branch:
+        this._onKeyDownVisual = (e) => {
+            if (e.code === 'KeyV' && this._retroPass) {
+                this._retroPass.enabled = !this._retroPass.enabled;
+                this.showMessage(`CRT ${this._retroPass.enabled ? 'ON' : 'OFF'}`);
+            }
+        };
+        window.addEventListener('keydown', this._onKeyDownVisual);
         this._onResize = () => this.onWindowResize();
         window.addEventListener('resize', this._onResize);
         this._onMouseDown = () => this.shoot();
@@ -170,133 +224,142 @@ export class Game {
         dustGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
         
         const dustMat = new THREE.PointsMaterial({
-            color: 0x88ccff,
-            size: 0.5,
+            color: 0x9ad7ff,
+            size: 0.7,
             transparent: true,
-            opacity: 0.6,
-            sizeAttenuation: true
+            opacity: 0.5,
+            sizeAttenuation: false
         });
         
         this.spaceDustPoints = new THREE.Points(dustGeo, dustMat);
         this.scene.add(this.spaceDustPoints);
     }
 
-    createStars() {
-        // 1. Background Dust (Tiny stars)
-        const starGeometry = new THREE.BufferGeometry();
-        const starVertices = [];
-        const starColors = [];
-        const colorOptions = [
-            new THREE.Color(0xffffff), // White
-            new THREE.Color(0xaaccff), // Blueish
-            new THREE.Color(0xffccaa)  // Reddish
+    createRetroBackdrop() {
+        // Pixel-ish stars (parallax-ish via wrap drift in EnvironmentSystem)
+        const mkLayer = ({ count, range, size, color, opacity, drift }) => {
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                const ix = i * 3;
+                pos[ix] = (Math.random() - 0.5) * range * 2;
+                pos[ix + 1] = (Math.random() - 0.5) * range * 2;
+                pos[ix + 2] = (Math.random() - 0.5) * range * 2;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({
+                color,
+                size,
+                transparent: true,
+                opacity,
+                sizeAttenuation: false
+            });
+            const points = new THREE.Points(geo, mat);
+            this.scene.add(points);
+            return { points, range, drift };
+        };
+
+        this.retroBackdropLayers = [
+            mkLayer({ count: 850, range: 550, size: 2.2, color: 0xcfe3ff, opacity: 0.85, drift: 0.24 }),
+            mkLayer({ count: 520, range: 850, size: 2.8, color: 0xa7d0ff, opacity: 0.72, drift: 0.16 }),
+            mkLayer({ count: 260, range: 1200, size: 3.3, color: 0xffd2a8, opacity: 0.65, drift: 0.09 })
         ];
 
-        for (let i = 0; i < 10000; i++) {
-            const x = (Math.random() - 0.5) * 6000;
-            const y = (Math.random() - 0.5) * 6000;
-            const z = (Math.random() - 0.5) * 6000;
-            starVertices.push(x, y, z);
-            
-            const color = colorOptions[Math.floor(Math.random() * colorOptions.length)];
-            starColors.push(color.r, color.g, color.b);
+        // Big pixel nebula sprites (chunky and low-detail on purpose)
+        const nebTex = this._createPixelNebulaTexture(128);
+        const colors = [0x6c2bd9, 0x2b77ff, 0xff2b75, 0x2bffcc];
+        this.retroNebulaSprites = [];
+        for (let i = 0; i < 12; i++) {
+            const c = colors[i % colors.length];
+            const mat = new THREE.SpriteMaterial({
+                map: nebTex,
+                color: c,
+                transparent: true,
+                opacity: 0.14,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const s = new THREE.Sprite(mat);
+            const scale = 900 + Math.random() * 1700;
+            s.scale.set(scale, scale, 1);
+            s.position.set(
+                (Math.random() - 0.5) * 3500,
+                (Math.random() - 0.5) * 3500,
+                (Math.random() - 0.5) * 3500
+            );
+            s.material.rotation = Math.random() * Math.PI * 2;
+            s.userData = { range: 2200 };
+            this.scene.add(s);
+            this.retroNebulaSprites.push(s);
         }
-        
-        starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
-        starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
-        
-        const starMaterial = new THREE.PointsMaterial({
-            size: 2,
-            vertexColors: true,
-            transparent: true,
-            opacity: 0.8,
-            sizeAttenuation: true
-        });
-        
-        const stars = new THREE.Points(starGeometry, starMaterial);
-        this.scene.add(stars);
-
-        // 2. Bright Glowing Stars (For Bloom) - Toned down
-        const brightGeo = new THREE.BufferGeometry();
-        const brightVertices = [];
-        
-        for(let i=0; i<300; i++) { // Reduced count from 500
-            const x = (Math.random() - 0.5) * 6000;
-            const y = (Math.random() - 0.5) * 6000;
-            const z = (Math.random() - 0.5) * 6000;
-            brightVertices.push(x, y, z);
-        }
-        brightGeo.setAttribute('position', new THREE.Float32BufferAttribute(brightVertices, 3));
-        const brightMat = new THREE.PointsMaterial({
-            color: 0xaaccff, // Slightly blue tint instead of pure white
-            size: 3,         // Reduced from 6
-            transparent: true,
-            opacity: 0.6,    // Reduced from 1.0
-            sizeAttenuation: true
-        });
-        const brightStars = new THREE.Points(brightGeo, brightMat);
-        this.scene.add(brightStars);
-
-        // 3. Procedural Nebula (Soft Clouds)
-        this.createNebula();
     }
 
-    createNebula() {
-        // Create a soft texture programmatically
+    _createPixelNebulaTexture(size) {
         const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 64;
-        const context = canvas.getContext('2d');
-        const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
-        gradient.addColorStop(0, 'rgba(255,255,255,0.4)');
-        gradient.addColorStop(0.4, 'rgba(255,255,255,0.1)');
-        gradient.addColorStop(1, 'rgba(0,0,0,0)');
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, 64, 64);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        
-        const colors = [0x5500aa, 0x0033aa, 0xaa0044, 0x00aa88]; // Purple, Blue, Magenta, Teal
-        const geometry = new THREE.SpriteMaterial({
-            map: texture,
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.08,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false
-        });
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
 
-        for (let i = 0; i < 60; i++) {
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            const material = geometry.clone();
-            material.color.setHex(color);
-            material.opacity = 0.02 + Math.random() * 0.05; // Reduced opacity to prevent whiteout
-            
-            const sprite = new THREE.Sprite(material);
-            const scale = 1000 + Math.random() * 2000;
-            sprite.scale.set(scale, scale, 1);
-            
-            sprite.position.set(
-                (Math.random() - 0.5) * 4000,
-                (Math.random() - 0.5) * 4000,
-                (Math.random() - 0.5) * 4000
-            );
-            
-            this.scene.add(sprite);
+        // Blocky noise blobs
+        const cell = 4;
+        for (let y = 0; y < size; y += cell) {
+            for (let x = 0; x < size; x += cell) {
+                const nx = (x / size) * 2 - 1;
+                const ny = (y / size) * 2 - 1;
+                const r = Math.sqrt(nx * nx + ny * ny);
+                const edge = Math.max(0, 1 - r);
+                const v = Math.random() * edge;
+                if (v < 0.28) continue;
+                const a = Math.min(1, (v - 0.28) * 0.9);
+                ctx.fillStyle = `rgba(255,255,255,${a * 0.55})`;
+                ctx.fillRect(x, y, cell, cell);
+            }
         }
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.NearestFilter;
+        tex.magFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        return tex;
     }
 
     createBaseStation() {
-        const geometry = new THREE.TorusKnotGeometry(20, 5, 100, 16);
-        const material = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 });
+        const geometry = new THREE.TorusKnotGeometry(20, 5, 44, 8);
+        const material = this._toon({ color: 0x9aa0aa, emissive: 0x1b1b25, emissiveIntensity: 0.15 });
         this.baseStation = new THREE.Mesh(geometry, material);
         this.baseStation.position.set(0, 0, -100);
         this.scene.add(this.baseStation);
+
+        if (this.visual.retroEnabled) this._outlineObject3D(this.baseStation, { opacity: 0.35 });
         
         // Add a glow or some indicator
-        const light = new THREE.PointLight(0x00ffff, 100, 100);
+        const light = new THREE.PointLight(0x00ffff, 65, 90);
         light.position.copy(this.baseStation.position);
         this.scene.add(light);
+    }
+
+    _toon({ color, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
+        return new THREE.MeshToonMaterial({
+            color,
+            emissive,
+            emissiveIntensity,
+            gradientMap: this._toonGradientMap
+        });
+    }
+
+    _outlineObject3D(root, { color = 0x07070c, opacity = 0.45 } = {}) {
+        // Cheap "cartoon" outline using edge lines.
+        const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+        root.traverse((o) => {
+            if (!o.isMesh || !o.geometry) return;
+            const edges = new THREE.EdgesGeometry(o.geometry, 35);
+            const lines = new THREE.LineSegments(edges, lineMat);
+            lines.renderOrder = 999;
+            o.add(lines);
+        });
     }
 
     createPlayerShip() {
@@ -308,32 +371,24 @@ export class Game {
         const accentColor = 0xffaa00;
 
         // 1. Fuselage (Central Body) - Sleek and long
-        const fuselageGeo = new THREE.CylinderGeometry(0.5, 1.2, 6, 8);
+        const fuselageGeo = new THREE.CylinderGeometry(0.5, 1.2, 6, 6);
         fuselageGeo.rotateX(Math.PI / 2);
-        const fuselageMat = new THREE.MeshStandardMaterial({ 
-            color: mainColor, roughness: 0.3, metalness: 0.8 
-        });
+        const fuselageMat = this._toon({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.12 });
         const fuselage = new THREE.Mesh(fuselageGeo, fuselageMat);
         fuselage.position.z = 0.5;
         group.add(fuselage);
 
         // Nose Cone
-        const noseGeo = new THREE.ConeGeometry(0.5, 3, 8);
+        const noseGeo = new THREE.ConeGeometry(0.5, 3, 6);
         noseGeo.rotateX(Math.PI / 2);
         const nose = new THREE.Mesh(noseGeo, fuselageMat);
         nose.position.z = 5;
         group.add(nose);
 
         // 2. Cockpit (Bubble Canopy)
-        const cockpitGeo = new THREE.CapsuleGeometry(0.7, 1.5, 4, 8);
+        const cockpitGeo = new THREE.CapsuleGeometry(0.7, 1.5, 3, 6);
         cockpitGeo.rotateX(Math.PI / 2);
-        const cockpitMat = new THREE.MeshStandardMaterial({ 
-            color: 0x111111, 
-            roughness: 0.0, 
-            metalness: 1.0,
-            emissive: 0x00aaff,
-            emissiveIntensity: 0.3
-        });
+        const cockpitMat = this._toon({ color: 0x14141a, emissive: 0x00aaff, emissiveIntensity: 0.35 });
         const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
         cockpit.position.set(0, 0.8, 1.0);
         cockpit.scale.set(1, 0.8, 1);
@@ -348,7 +403,7 @@ export class Game {
         
         const wingExtrudeSettings = { steps: 1, depth: 0.2, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 2 };
         const wingGeo = new THREE.ExtrudeGeometry(wingShape, wingExtrudeSettings);
-        const wingMat = new THREE.MeshStandardMaterial({ color: mainColor, roughness: 0.5, metalness: 0.6 });
+        const wingMat = this._toon({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.08 });
         
         // Left Wing
         const leftWing = new THREE.Mesh(wingGeo, wingMat);
@@ -368,11 +423,11 @@ export class Game {
         group.add(rightWing);
 
         // 4. Heavy Engines (Double Thrusters)
-        const engineGeo = new THREE.CylinderGeometry(0.6, 0.8, 3, 16);
+        const engineGeo = new THREE.CylinderGeometry(0.6, 0.8, 3, 8);
         engineGeo.rotateX(Math.PI / 2);
-        const engineMat = new THREE.MeshStandardMaterial({ color: secondaryColor, roughness: 0.4, metalness: 0.7 });
+        const engineMat = this._toon({ color: secondaryColor, emissive: 0x070710, emissiveIntensity: 0.15 });
         
-        const glowGeo = new THREE.CylinderGeometry(0.4, 0.1, 0.2, 16);
+        const glowGeo = new THREE.CylinderGeometry(0.4, 0.1, 0.2, 8);
         glowGeo.rotateX(Math.PI / 2);
         const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
@@ -382,7 +437,7 @@ export class Game {
             
             // Engine Glow Ring
             const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(0.7, 0.1, 8, 16),
+                new THREE.TorusGeometry(0.7, 0.1, 6, 10),
                 new THREE.MeshBasicMaterial({ color: 0x00ffff, blending: THREE.AdditiveBlending })
             );
             ring.position.z = -1.5;
@@ -403,7 +458,7 @@ export class Game {
 
         // 5. Weapon Mounts
         const gunGeo = new THREE.BoxGeometry(0.2, 0.2, 2);
-        const gunMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const gunMat = this._toon({ color: 0x2a2a33, emissive: 0x050507, emissiveIntensity: 0.12 });
         const gunL = new THREE.Mesh(gunGeo, gunMat);
         gunL.position.set(-4, 0, 0);
         const gunR = new THREE.Mesh(gunGeo, gunMat);
@@ -419,6 +474,8 @@ export class Game {
 
         this.player = group;
         this.scene.add(this.player);
+
+        if (this.visual.retroEnabled) this._outlineObject3D(this.player, { opacity: 0.35 });
         
         // Initial position
         this.player.position.set(0, 0, 0);
@@ -453,13 +510,12 @@ export class Game {
         // Create asteroids with better variation
         for (let i = 0; i < 300; i++) {
             const asteroidGeo = new THREE.DodecahedronGeometry(1, Math.floor(Math.random() * 2));
-            const material = new THREE.MeshStandardMaterial({ 
-                color: new THREE.Color().setHSL(Math.random() * 0.1, 0.2, 0.3 + Math.random() * 0.2),
-                roughness: 0.8,
-                metalness: 0.2
-            });
+            const asteroidColor = new THREE.Color().setHSL(Math.random() * 0.08, 0.22, 0.45);
+            const material = this._toon({ color: asteroidColor, emissive: 0x090910, emissiveIntensity: 0.08 });
             
             const asteroid = new THREE.Mesh(asteroidGeo, material);
+            asteroid.material.flatShading = true;
+            asteroid.material.needsUpdate = true;
             const scale = 1 + Math.random() * 8;
             asteroid.scale.set(scale, scale, scale);
             
@@ -515,19 +571,13 @@ export class Game {
             this.objects.push(asteroid);
         }
 
-        // Create a few "planets" with more detail
-        const planetGeo = new THREE.SphereGeometry(1, 64, 64);
+        // Planets: keep them chunky/low-poly for the retro-toon direction.
+        const planetGeo = new THREE.SphereGeometry(1, 18, 14);
         const planetColors = [0xff7733, 0x3366ff, 0x44aa44, 0xaa44ff];
         
         for (let i = 0; i < 8; i++) {
             const color = planetColors[i % planetColors.length];
-            const mat = new THREE.MeshStandardMaterial({ 
-                color: color,
-                roughness: 0.6,
-                metalness: 0.4,
-                emissive: color,
-                emissiveIntensity: 0.1
-            });
+            const mat = this._toon({ color, emissive: color, emissiveIntensity: 0.12 });
             const planet = new THREE.Mesh(planetGeo, mat);
             const scale = 80 + Math.random() * 120;
             planet.scale.set(scale, scale, scale);
@@ -568,7 +618,7 @@ export class Game {
             this.objects.push(planet);
 
             // Add a simple atmosphere glow effect for planets
-            const atmosphereGeo = new THREE.SphereGeometry(1.1, 32, 32);
+            const atmosphereGeo = new THREE.SphereGeometry(1.1, 14, 10);
             const atmosphereMat = new THREE.MeshBasicMaterial({
                 color: color,
                 transparent: true,
@@ -748,11 +798,18 @@ export class Game {
         if (this.composer) {
             this.composer.setSize(window.innerWidth, window.innerHeight);
         }
+        if (this._retroPass) {
+            this._retroPass.material.uniforms.uResolution.value.set(
+                window.innerWidth * window.devicePixelRatio,
+                window.innerHeight * window.devicePixelRatio
+            );
+        }
     }
 
     animate(nowMs) {
         requestAnimationFrame((t) => this.animate(t));
         this._loop.advance(nowMs, (dtSec) => this.update(dtSec));
+        if (this._retroPass) this._retroPass.material.uniforms.uTime.value = nowMs / 1000;
         if (this.composer) {
             this.composer.render();
         } else {
@@ -767,6 +824,7 @@ export class Game {
             // ignore
         }
         if (this._onKeyDownShoot) window.removeEventListener('keydown', this._onKeyDownShoot);
+        if (this._onKeyDownVisual) window.removeEventListener('keydown', this._onKeyDownVisual);
         if (this._onResize) window.removeEventListener('resize', this._onResize);
         if (this._onMouseDown) window.removeEventListener('mousedown', this._onMouseDown);
 

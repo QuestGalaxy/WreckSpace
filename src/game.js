@@ -88,6 +88,9 @@ export class Game {
         // When a locked target is destroyed, briefly suppress re-lock so the crosshair snaps back.
         this._lockSuppressUntilSec = 0;
 
+        // Cruise "gear" / throttle. MovementSystem reads this and lerps toward it.
+        this.throttle = { level: 3, min: 0, max: 10, step: 1 };
+
         // Visual direction: voxel / Minecraft-ish space.
         this.visual = { mode: 'voxel' };
         this.voxel = {

@@ -16,6 +16,15 @@ export class MovementSystem {
     this._axisX = new THREE.Vector3(1, 0, 0);
     this._axisY = new THREE.Vector3(0, 1, 0);
     this._axisZ = new THREE.Vector3(0, 0, 1);
+
+    // Rising-edge detection for throttle keys.
+    this._throttleUpPrev = false;
+    this._throttleDownPrev = false;
+
+    /** @type {number} */
+    this._lastUpTapSec = -1e9;
+    /** @type {number} */
+    this._lastDownTapSec = -1e9;
   }
 
   /**
@@ -23,7 +32,6 @@ export class MovementSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    void nowSec;
     const g = this.game;
     if (!g.playerEntityId || !g.player) return;
 
@@ -34,6 +42,7 @@ export class MovementSystem {
     const pitchSpeed = 0.010 * k;
     const yawSpeed = 0.010 * k;
     const rollSpeed = 0.015 * k;
+    // Acceleration is scaled by worldScale so voxel scaling doesn't change feel.
     const acceleration = (g.keys['KeyZ'] ? 0.08 : 0.04) * k * ws;
     const friction = Math.pow(0.98, k); // convert per-tick friction to dt-aware
 
@@ -77,9 +86,42 @@ export class MovementSystem {
       this._quat.multiply(this._qTmp);
     }
 
+    // Cruise speed ("gear") control: double-tap ArrowUp / ArrowDown.
+    if (!g.throttle) g.throttle = { level: 3, min: 0, max: 10, step: 1 };
+    const upNow = !!g.keys['ArrowUp'];
+    const downNow = !!g.keys['ArrowDown'];
+    const upTap = upNow && !this._throttleUpPrev;
+    const downTap = downNow && !this._throttleDownPrev;
+
+    const dblTapWindowSec = 0.33;
+    if (upTap) {
+      if (nowSec - this._lastUpTapSec <= dblTapWindowSec) {
+        g.throttle.level = Math.min(g.throttle.max, g.throttle.level + g.throttle.step);
+        if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        this._lastUpTapSec = -1e9;
+      } else {
+        this._lastUpTapSec = nowSec;
+      }
+    }
+    if (downTap) {
+      if (nowSec - this._lastDownTapSec <= dblTapWindowSec) {
+        g.throttle.level = Math.max(g.throttle.min, g.throttle.level - g.throttle.step);
+        if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        this._lastDownTapSec = -1e9;
+      } else {
+        this._lastDownTapSec = nowSec;
+      }
+    }
+
+    this._throttleUpPrev = upNow;
+    this._throttleDownPrev = downNow;
+
     // Velocity & Thrust Calculation
-    // Speed is scaled by worldScale; keep the same 2x boost ratio.
-    const targetSpeedVal = (g.keys['KeyZ'] ? 3.0 : 1.5) * ws;
+    // `level` is in "meters-ish"; multiply by worldScale to keep feel stable with voxel scaling.
+    const level = g.throttle.level;
+    const maxLevel = g.throttle.max;
+    const boostedLevel = g.keys['KeyZ'] ? Math.min(maxLevel, level + 2) : level;
+    const targetSpeedVal = boostedLevel * ws;
     const speedLerp = 1 - Math.pow(1 - 0.05, k);
     g.currentSpeed = THREE.MathUtils.lerp(g.currentSpeed, targetSpeedVal, speedLerp);
 

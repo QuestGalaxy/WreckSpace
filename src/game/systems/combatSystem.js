@@ -97,24 +97,19 @@ export class CombatSystem {
     g.lastShotTime = now;
     if (g.hud) g.hud.crosshairPulseFiring();
 
-    // Laser Geometry: Much beefier and longer for "Heavy Laser" feel
-    const laserGeo = new THREE.CylinderGeometry(0.25, 0.25, 12, 8);
-    laserGeo.rotateX(Math.PI / 2);
-
+    // Voxel-ish laser: blocky beam with a bright core.
+    const laserGeo = new THREE.BoxGeometry(0.6, 0.6, 10);
     const laserMat = new THREE.MeshBasicMaterial({
       color: 0x00ffff,
       transparent: true,
-      opacity: 1.0,
+      opacity: 0.95,
       blending: THREE.AdditiveBlending
     });
     const bullet = new THREE.Mesh(laserGeo, laserMat);
 
-    // Brighter Core
-    const coreGeo = new THREE.CylinderGeometry(0.1, 0.1, 12.2, 8);
-    coreGeo.rotateX(Math.PI / 2);
+    const coreGeo = new THREE.BoxGeometry(0.25, 0.25, 10.2);
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const core = new THREE.Mesh(coreGeo, coreMat);
-    bullet.add(core);
+    bullet.add(new THREE.Mesh(coreGeo, coreMat));
 
     // Start exactly at the nose of the ship
     this._noseWorld.copy(this._noseOffset).applyQuaternion(this._playerQuat);
@@ -148,9 +143,14 @@ export class CombatSystem {
     g.scene.add(bullet);
     g.bullets.push(bullet);
 
-    // Muzzle Flash Effect
-    const flashGeo = new THREE.SphereGeometry(0.5, 8, 8);
-    const flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+    // Muzzle Flash Effect (blocky)
+    const flashGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+    const flashMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending
+    });
     const flash = new THREE.Mesh(flashGeo, flashMat);
     flash.position.copy(this._bulletPos);
     g.scene.add(flash);

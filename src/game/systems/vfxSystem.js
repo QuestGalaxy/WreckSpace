@@ -14,7 +14,7 @@ export class VfxSystem {
     this._engineTrailPool = [];
     this._engineTrailPoolLimit = 600;
 
-    this._engineTrailGeo = new THREE.SphereGeometry(1, 4, 4); // unit sphere, scaled per instance
+    this._engineTrailGeo = new THREE.BoxGeometry(1, 1, 1); // unit cube, scaled per instance
 
     /** @type {THREE.Mesh[]} */
     this._smokePool = [];
@@ -30,9 +30,9 @@ export class VfxSystem {
     this._fireballPoolLimit = 400;
     this._hitSparkPoolLimit = 600;
 
-    this._smokeGeo = new THREE.SphereGeometry(1, 4, 4); // scaled per instance
+    this._smokeGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
     this._sparkGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
-    this._fireballGeo = new THREE.SphereGeometry(1, 8, 8); // scaled per instance
+    this._fireballGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
   }
 
   /**
@@ -271,8 +271,9 @@ export class VfxSystem {
       } else if (p.userData.isShockwave) {
         const initialLife = p.userData.initialLife ?? 40;
         const progress = 1 - p.userData.life / initialLife; // 0..1
-        const scale = 1 + progress * initialLife * p.userData.expandSpeed;
-        p.scale.set(scale, scale, scale);
+        const base = p.userData.baseScale ?? 1;
+        const scale = base * (1 + progress * initialLife * p.userData.expandSpeed);
+        p.scale.set(scale, scale, p.scale.z);
         p.material.opacity = Math.max(0, p.userData.life / initialLife);
       } else if (p.userData.isFireball) {
         p.scale.multiplyScalar(Math.pow(p.userData.expandSpeed, k));
@@ -374,8 +375,8 @@ export class VfxSystem {
 
     const isPlanet = type === 'planet';
 
-    // 1. Core Shockwave (Expanding Ring)
-    const ringGeo = new THREE.TorusGeometry(size * (isPlanet ? 0.8 : 0.5), isPlanet ? 2 : 0.1, 16, 100);
+    // 1. Core Shockwave (Expanding slab; voxel-friendly)
+    const ringGeo = new THREE.BoxGeometry(1, 1, 0.25);
     const ringMat = new THREE.MeshBasicMaterial({
       color: isPlanet ? 0xff4400 : 0xffaa44,
       transparent: true,
@@ -388,9 +389,12 @@ export class VfxSystem {
     g.scene.add(ring);
 
     const ringLife = isPlanet ? 80 : 40;
+    const baseScale = size * (isPlanet ? 1.2 : 0.9);
+    ring.scale.set(baseScale, baseScale, 1);
     ring.userData = {
       isShockwave: true,
-      expandSpeed: size * (isPlanet ? 0.05 : 0.1),
+      baseScale,
+      expandSpeed: isPlanet ? 0.028 : 0.06,
       life: ringLife,
       initialLife: ringLife
     };
@@ -400,7 +404,7 @@ export class VfxSystem {
     if (isPlanet) {
       const ring2 = ring.clone();
       ring2.rotation.x = Math.PI / 2;
-      ring2.userData.expandSpeed *= 1.2;
+      ring2.userData.expandSpeed *= 1.15;
       g.scene.add(ring2);
       g.particles.push(ring2);
     }

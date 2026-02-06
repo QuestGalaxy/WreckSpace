@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SoundManager } from './soundManager.js';
 import { FixedTimestepLoop } from './core/fixedTimestepLoop.js';
 import { KeyboardInput } from './input/keyboard.js';
@@ -16,8 +15,7 @@ import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
-import { RetroCrtShader } from './render/retroCrtShader.js';
-import { createToonGradientMap } from './render/toonGradient.js';
+import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
 
 export class Game {
     /**
@@ -83,20 +81,19 @@ export class Game {
         /** @type {number|null} */
         this.playerEntityId = null;
 
-        // Visual direction: Retro 90s / toon-ish 3D (this branch experiment).
-        this.visual = {
-            retroEnabled: true,
-            crtEnabled: true
+        // Visual direction: voxel / Minecraft-ish space.
+        this.visual = { mode: 'voxel' };
+        this.voxel = {
+            size: 1.0
         };
     }
 
     init() {
         // Scene setup
         this.scene = new THREE.Scene();
-        // Lift the blacks a lot; CRT pass will add grit via scanlines/mask.
-        this.scene.background = new THREE.Color(0x15162c);
-        // Reduce realism: keep fog very subtle, more "gamey" than cinematic.
-        this.scene.fog = new THREE.FogExp2(0x0a0b1e, 0.00022);
+        this.scene.background = new THREE.Color(0x0b1022);
+        // Keep fog subtle; helps distant voxels read without looking realistic.
+        this.scene.fog = new THREE.FogExp2(0x050716, 0.00018);
 
         // Camera setup - Reduced FOV to 60 for less distortion
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
@@ -104,13 +101,13 @@ export class Game {
         // Renderer setup
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
-            // Retro look: let CRT pass control the "pixel" feel, keep AA off.
-            antialias: false
+            // Voxel edges benefit from AA (less shimmering).
+            antialias: true
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        // Clamp DPR a bit; voxel scenes can get vertex-heavy quickly.
+        this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        // Avoid "filmic" realism; keep it simple.
         this.renderer.toneMapping = THREE.NoToneMapping;
 
         // Post-processing
@@ -118,59 +115,30 @@ export class Game {
         
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.7, // strength (reduced)
-            0.2, // radius (reduced)
-            0.2  // threshold (reduced glow spam)
+            0.75, // strength
+            0.18, // radius
+            0.35  // threshold (mostly glows)
         );
         
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(renderScene);
-        if (!this.visual.retroEnabled) {
-            this.composer.addPass(bloomPass);
-        } else {
-            // Keep bloom very subtle in retro mode; mostly rely on emissive/additive + CRT.
-            this.composer.addPass(bloomPass);
-            bloomPass.strength = 0.35;
-            bloomPass.radius = 0.1;
-            bloomPass.threshold = 0.35;
-        }
-
-        // CRT / pixel / quantization pass
-        this._retroPass = new ShaderPass(RetroCrtShader);
-        this._retroPass.enabled = !!this.visual.crtEnabled;
-        this._retroPass.material.uniforms.uResolution.value.set(
-            window.innerWidth * window.devicePixelRatio,
-            window.innerHeight * window.devicePixelRatio
-        );
-        // Strong defaults so the CRT/retro look is obvious.
-        const dpr = window.devicePixelRatio || 1;
-        this._retroPass.material.uniforms.uPixelSize.value = 3.0 * dpr; // ~3 CSS px blocks
-        this._retroPass.material.uniforms.uScanline.value = 0.7;
-        this._retroPass.material.uniforms.uVignette.value = 0.35;
-        this._retroPass.material.uniforms.uCurvature.value = 0.11;
-        this._retroPass.material.uniforms.uChroma.value = 1.4 * dpr;
-        this._retroPass.material.uniforms.uNoise.value = 0.07;
-        this._retroPass.material.uniforms.uMask.value = 0.65;
-        this._retroPass.material.uniforms.uLevels.value = 18.0;
-        this._retroPass.material.uniforms.uDither.value = 1.0;
-        this._retroPass.material.uniforms.uContrast.value = 0.95;
-        this._retroPass.material.uniforms.uBrightness.value = 1.28;
-        if (this.visual.retroEnabled) this.composer.addPass(this._retroPass);
+        this.composer.addPass(bloomPass);
 
         // Lighting
-        // Stylized lighting: brighter ambient + a single key light.
-        const ambientLight = new THREE.AmbientLight(0x8b8bb0, 2.35);
+        // Minecraft-ish: simple ambient + key + faint rim.
+        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.1);
         this.scene.add(ambientLight);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
-        sunLight.position.set(100, 100, 100);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.25);
+        sunLight.position.set(120, 160, 90);
         this.scene.add(sunLight);
 
-        // Shared toon ramp used by MeshToonMaterial instances.
-        this._toonGradientMap = createToonGradientMap();
+        const rim = new THREE.DirectionalLight(0x66ccff, 0.35);
+        rim.position.set(-120, 20, -180);
+        this.scene.add(rim);
 
         // Backdrop
-        this.createRetroBackdrop();
+        this.createRetroBackdrop(); // still fine: it's a starfield + nebula sprites
         this.createSpaceDust(); // still useful for speed feel; CRT pass stylizes it
 
         // Base Station
@@ -188,14 +156,6 @@ export class Game {
             if (e.code === 'Space') this.shoot();
         };
         window.addEventListener('keydown', this._onKeyDownShoot);
-        // Debug toggles for experimentation on this branch:
-        this._onKeyDownVisual = (e) => {
-            if (e.code === 'KeyV' && this._retroPass) {
-                this._retroPass.enabled = !this._retroPass.enabled;
-                this.showMessage(`CRT ${this._retroPass.enabled ? 'ON' : 'OFF'}`);
-            }
-        };
-        window.addEventListener('keydown', this._onKeyDownVisual);
         this._onResize = () => this.onWindowResize();
         window.addEventListener('resize', this._onResize);
         this._onMouseDown = () => this.shoot();
@@ -327,13 +287,48 @@ export class Game {
     }
 
     createBaseStation() {
-        const geometry = new THREE.TorusKnotGeometry(20, 5, 44, 8);
-        const material = this._toon({ color: 0x9aa0aa, emissive: 0x1b1b25, emissiveIntensity: 0.15 });
-        this.baseStation = new THREE.Mesh(geometry, material);
-        this.baseStation.position.set(0, 0, -100);
-        this.scene.add(this.baseStation);
+        const group = new THREE.Group();
 
-        if (this.visual.retroEnabled) this._outlineObject3D(this.baseStation, { opacity: 0.35 });
+        const hull = new Set();
+        const dark = new Set();
+        const lights = new Set();
+
+        // Chunky "voxel station" silhouette.
+        addBox(hull, -5, -2, -5, 5, 2, 5);
+        addBox(hull, -12, -1, -2, -6, 1, 2);
+        addBox(hull, 6, -1, -2, 12, 1, 2);
+        addBox(hull, -2, -1, -12, 2, 1, -6);
+        addBox(hull, -2, -1, 6, 2, 1, 12);
+
+        // Dark insets / docking bays.
+        addBox(dark, -3, -1, 6, 3, 1, 9);
+        addBox(dark, -3, -1, -9, 3, 1, -6);
+        addBox(dark, -9, -1, -3, -6, 1, 3);
+        addBox(dark, 6, -1, -3, 9, 1, 3);
+
+        // Light strips.
+        addBox(lights, -5, 3, -1, -1, 3, 1);
+        addBox(lights, 1, 3, -1, 5, 3, 1);
+        addBox(lights, -1, 0, 12, 1, 0, 14);
+
+        const hullMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0xa6adb8, emissive: 0x0b0c12, emissiveIntensity: 0.08 })
+        );
+        const darkMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0x1b1f2a, emissive: 0x070814, emissiveIntensity: 0.15 })
+        );
+        const lightMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(lights, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0x66ccff, emissive: 0x66ccff, emissiveIntensity: 1.2 })
+        );
+
+        group.add(hullMesh, darkMesh, lightMesh);
+
+        this.baseStation = group;
+        this.baseStation.position.set(0, 0, -120);
+        this.scene.add(this.baseStation);
         
         // Add a glow or some indicator
         const light = new THREE.PointLight(0x00ffff, 65, 90);
@@ -341,141 +336,88 @@ export class Game {
         this.scene.add(light);
     }
 
-    _toon({ color, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
-        return new THREE.MeshToonMaterial({
+    _voxLit({ color, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
+        const mat = new THREE.MeshStandardMaterial({
             color,
             emissive,
             emissiveIntensity,
-            gradientMap: this._toonGradientMap
+            metalness: 0.0,
+            roughness: 1.0,
+            flatShading: true
         });
-    }
-
-    _outlineObject3D(root, { color = 0x07070c, opacity = 0.45 } = {}) {
-        // Cheap "cartoon" outline using edge lines.
-        const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-        root.traverse((o) => {
-            if (!o.isMesh || !o.geometry) return;
-            const edges = new THREE.EdgesGeometry(o.geometry, 35);
-            const lines = new THREE.LineSegments(edges, lineMat);
-            lines.renderOrder = 999;
-            o.add(lines);
-        });
+        return mat;
     }
 
     createPlayerShip() {
-        // High-Fidelity "Starfighter" Design
         const group = new THREE.Group();
         
-        const mainColor = this.shipData.color;
-        const secondaryColor = 0x333333;
-        const accentColor = 0xffaa00;
+        const mainColor = this.shipData.color ?? 0x44aaff;
 
-        // 1. Fuselage (Central Body) - Sleek and long
-        const fuselageGeo = new THREE.CylinderGeometry(0.5, 1.2, 6, 6);
-        fuselageGeo.rotateX(Math.PI / 2);
-        const fuselageMat = this._toon({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.12 });
-        const fuselage = new THREE.Mesh(fuselageGeo, fuselageMat);
-        fuselage.position.z = 0.5;
-        group.add(fuselage);
+        // Voxel model: build separate layers so we can tint materials.
+        const hull = new Set();
+        const dark = new Set();
+        const accent = new Set();
+        const glass = new Set();
+        const thruster = new Set();
 
-        // Nose Cone
-        const noseGeo = new THREE.ConeGeometry(0.5, 3, 6);
-        noseGeo.rotateX(Math.PI / 2);
-        const nose = new THREE.Mesh(noseGeo, fuselageMat);
-        nose.position.z = 5;
-        group.add(nose);
+        // Fuselage
+        addBox(hull, -1, -1, -6, 1, 1, 6);
+        addBox(hull, -2, -1, -3, 2, 1, 2);
+        // Nose
+        addBox(hull, -1, -1, 7, 1, 1, 10);
+        addBox(accent, -1, -2, 6, 1, -2, 10);
 
-        // 2. Cockpit (Bubble Canopy)
-        const cockpitGeo = new THREE.CapsuleGeometry(0.7, 1.5, 3, 6);
-        cockpitGeo.rotateX(Math.PI / 2);
-        const cockpitMat = this._toon({ color: 0x14141a, emissive: 0x00aaff, emissiveIntensity: 0.35 });
-        const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
-        cockpit.position.set(0, 0.8, 1.0);
-        cockpit.scale.set(1, 0.8, 1);
-        group.add(cockpit);
+        // Wings
+        addBox(hull, -6, 0, -2, -3, 0, 4);
+        addBox(hull, 3, 0, -2, 6, 0, 4);
+        addBox(dark, -7, 0, -1, -6, 0, 3);
+        addBox(dark, 6, 0, -1, 7, 0, 3);
 
-        // 3. Wings (Forward Swept / Aggressive)
-        const wingShape = new THREE.Shape();
-        wingShape.moveTo(0, 0);
-        wingShape.lineTo(4, -2);
-        wingShape.lineTo(4, 1);
-        wingShape.lineTo(0, 3);
-        
-        const wingExtrudeSettings = { steps: 1, depth: 0.2, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 2 };
-        const wingGeo = new THREE.ExtrudeGeometry(wingShape, wingExtrudeSettings);
-        const wingMat = this._toon({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.08 });
-        
-        // Left Wing
-        const leftWing = new THREE.Mesh(wingGeo, wingMat);
-        leftWing.rotation.x = Math.PI / 2;
-        leftWing.rotation.y = -0.2; // Slight tilt
-        leftWing.position.set(-1, 0, -1);
-        group.add(leftWing);
+        // Cockpit
+        addBox(glass, -1, 2, 0, 1, 3, 3);
+        addBox(dark, -1, 1, -2, 1, 1, -1);
 
-        // Right Wing
-        const rightWing = new THREE.Mesh(wingGeo, wingMat);
-        rightWing.rotation.x = Math.PI / 2;
-        rightWing.rotation.y = Math.PI + 0.2; // Mirror + tilt
-        rightWing.position.set(1, 0, -1);
-        // Correcting the shape orientation for right wing requires scaling
-        rightWing.scale.set(1, 1, -1); // Mirror Z
-        rightWing.rotation.set(Math.PI / 2, 0.2, 0);
-        group.add(rightWing);
+        // Engines
+        addBox(dark, -3, -1, -8, -1, 1, -6);
+        addBox(dark, 1, -1, -8, 3, 1, -6);
+        addBox(thruster, -2, 0, -9, -2, 0, -9);
+        addBox(thruster, 2, 0, -9, 2, 0, -9);
 
-        // 4. Heavy Engines (Double Thrusters)
-        const engineGeo = new THREE.CylinderGeometry(0.6, 0.8, 3, 8);
-        engineGeo.rotateX(Math.PI / 2);
-        const engineMat = this._toon({ color: secondaryColor, emissive: 0x070710, emissiveIntensity: 0.15 });
-        
-        const glowGeo = new THREE.CylinderGeometry(0.4, 0.1, 0.2, 8);
-        glowGeo.rotateX(Math.PI / 2);
-        const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+        // Guns
+        addBox(accent, -6, 0, 5, -5, 0, 7);
+        addBox(accent, 5, 0, 5, 6, 0, 7);
 
-        const createEngine = (x, y, z) => {
-            const engine = new THREE.Mesh(engineGeo, engineMat);
-            engine.position.set(x, y, z);
-            
-            // Engine Glow Ring
-            const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(0.7, 0.1, 6, 10),
-                new THREE.MeshBasicMaterial({ color: 0x00ffff, blending: THREE.AdditiveBlending })
-            );
-            ring.position.z = -1.5;
-            engine.add(ring);
+        const hullMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.08 })
+        );
+        const darkMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0x1b1f2a, emissive: 0x050512, emissiveIntensity: 0.12 })
+        );
+        const accentMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(accent, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0xffaa22, emissive: 0x3a1b00, emissiveIntensity: 0.18 })
+        );
+        const glassMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(glass, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0x0b1222, emissive: 0x00aaff, emissiveIntensity: 0.7 })
+        );
+        const thrusterMesh = new THREE.Mesh(
+            buildVoxelSurfaceGeometry(thruster, { voxelSize: this.voxel.size }),
+            this._voxLit({ color: 0x66ccff, emissive: 0x66ccff, emissiveIntensity: 2.0 })
+        );
 
-            // Inner Glow
-            const core = new THREE.Mesh(glowGeo, glowMat);
-            core.position.z = -1.5;
-            engine.add(core);
-
-            return engine;
-        };
-
-        const engL = createEngine(-2.5, 0, -2);
-        const engR = createEngine(2.5, 0, -2);
-        group.add(engL);
-        group.add(engR);
-
-        // 5. Weapon Mounts
-        const gunGeo = new THREE.BoxGeometry(0.2, 0.2, 2);
-        const gunMat = this._toon({ color: 0x2a2a33, emissive: 0x050507, emissiveIntensity: 0.12 });
-        const gunL = new THREE.Mesh(gunGeo, gunMat);
-        gunL.position.set(-4, 0, 0);
-        const gunR = new THREE.Mesh(gunGeo, gunMat);
-        gunR.position.set(4, 0, 0);
-        group.add(gunL);
-        group.add(gunR);
+        group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh);
 
         // Store engine positions for trails (Tip of the glow)
         this.engineOffsets = [
-            new THREE.Vector3(-2.5, 0, -3.5), 
-            new THREE.Vector3(2.5, 0, -3.5)
+            new THREE.Vector3(-2, 0, -10),
+            new THREE.Vector3(2, 0, -10)
         ];
 
         this.player = group;
         this.scene.add(this.player);
-
-        if (this.visual.retroEnabled) this._outlineObject3D(this.player, { opacity: 0.35 });
         
         // Initial position
         this.player.position.set(0, 0, 0);
@@ -507,16 +449,43 @@ export class Game {
     }
 
     createEnvironment() {
-        // Create asteroids with better variation
+        // Pre-bake a handful of voxel asteroid geometries; reuse them for spawns.
+        if (!this._voxelAsteroidVariants) {
+            this._voxelAsteroidVariants = [];
+            for (let i = 0; i < 10; i++) {
+                const rng = mulberry32(0xdecafbad + i * 1013);
+                const filled = new Set();
+                const r = 2 + Math.floor(rng() * 4); // 2..5 voxels
+                addSphere(filled, r, { hollow: false, jitter: 1.25, rng });
+                // Chip away a bit to make it rock-like.
+                for (const k of Array.from(filled)) {
+                    if (rng() < 0.10) filled.delete(k);
+                }
+                const geo = buildVoxelSurfaceGeometry(filled, { voxelSize: this.voxel.size });
+                // Normalize geometry so object scale remains a "radius-ish" number (used by collisions).
+                geo.computeBoundingSphere();
+                const br = geo.boundingSphere?.radius ?? 1;
+                if (br > 0.00001) geo.scale(1 / br, 1 / br, 1 / br);
+                geo.computeBoundingSphere();
+                this._voxelAsteroidVariants.push({ geo });
+            }
+        }
+
+        const asteroidPalette = [
+            0x58607a, // blue gray
+            0x6a5a62, // warm gray
+            0x4f6b6e, // teal gray
+            0x5e5d49  // olive gray
+        ];
+
+        // Create asteroids
         for (let i = 0; i < 300; i++) {
-            const asteroidGeo = new THREE.DodecahedronGeometry(1, Math.floor(Math.random() * 2));
-            const asteroidColor = new THREE.Color().setHSL(Math.random() * 0.08, 0.22, 0.45);
-            const material = this._toon({ color: asteroidColor, emissive: 0x090910, emissiveIntensity: 0.08 });
-            
-            const asteroid = new THREE.Mesh(asteroidGeo, material);
-            asteroid.material.flatShading = true;
-            asteroid.material.needsUpdate = true;
-            const scale = 1 + Math.random() * 8;
+            const variant = this._voxelAsteroidVariants[i % this._voxelAsteroidVariants.length];
+            const asteroidColor = asteroidPalette[Math.floor(Math.random() * asteroidPalette.length)];
+            const material = this._voxLit({ color: asteroidColor, emissive: 0x060814, emissiveIntensity: 0.06 });
+
+            const asteroid = new THREE.Mesh(variant.geo, material);
+            const scale = 1.2 + Math.random() * 7.5;
             asteroid.scale.set(scale, scale, scale);
             
             asteroid.position.set(
@@ -571,14 +540,30 @@ export class Game {
             this.objects.push(asteroid);
         }
 
-        // Planets: keep them chunky/low-poly for the retro-toon direction.
-        const planetGeo = new THREE.SphereGeometry(1, 18, 14);
+        // Planets: voxel shells (chunky).
+        if (!this._voxelPlanetVariants) {
+            this._voxelPlanetVariants = [];
+            for (let i = 0; i < 4; i++) {
+                const rng = mulberry32(0x12345678 + i * 99991);
+                const filled = new Set();
+                const r = 11 + Math.floor(rng() * 3); // 11..13 voxels
+                addSphere(filled, r, { hollow: true, thickness: 2, jitter: 0.75, rng });
+                const geo = buildVoxelSurfaceGeometry(filled, { voxelSize: 1.0 });
+                geo.computeBoundingSphere();
+                const br = geo.boundingSphere?.radius ?? 1;
+                if (br > 0.00001) geo.scale(1 / br, 1 / br, 1 / br);
+                geo.computeBoundingSphere();
+                this._voxelPlanetVariants.push({ geo });
+            }
+        }
+
         const planetColors = [0xff7733, 0x3366ff, 0x44aa44, 0xaa44ff];
         
         for (let i = 0; i < 8; i++) {
             const color = planetColors[i % planetColors.length];
-            const mat = this._toon({ color, emissive: color, emissiveIntensity: 0.12 });
-            const planet = new THREE.Mesh(planetGeo, mat);
+            const variant = this._voxelPlanetVariants[i % this._voxelPlanetVariants.length];
+            const mat = this._voxLit({ color, emissive: color, emissiveIntensity: 0.18 });
+            const planet = new THREE.Mesh(variant.geo, mat);
             const scale = 80 + Math.random() * 120;
             planet.scale.set(scale, scale, scale);
             
@@ -617,16 +602,20 @@ export class Game {
             this.scene.add(planet);
             this.objects.push(planet);
 
-            // Add a simple atmosphere glow effect for planets
-            const atmosphereGeo = new THREE.SphereGeometry(1.1, 14, 10);
-            const atmosphereMat = new THREE.MeshBasicMaterial({
-                color: color,
-                transparent: true,
-                opacity: 0.1,
-                side: THREE.BackSide
-            });
-            const atmosphere = new THREE.Mesh(atmosphereGeo, atmosphereMat);
-            planet.add(atmosphere);
+            // Simple atmosphere glow (sprite, cheap).
+            const glow = new THREE.Sprite(
+                new THREE.SpriteMaterial({
+                    map: this.vfx.createGlowTexture('#ffffff'),
+                    color,
+                    transparent: true,
+                    opacity: 0.18,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                })
+            );
+            // Sprite is parent-scaled by the planet; keep it small in local space.
+            glow.scale.set(3.6, 3.6, 1);
+            planet.add(glow);
         }
     }
 
@@ -798,18 +787,11 @@ export class Game {
         if (this.composer) {
             this.composer.setSize(window.innerWidth, window.innerHeight);
         }
-        if (this._retroPass) {
-            this._retroPass.material.uniforms.uResolution.value.set(
-                window.innerWidth * window.devicePixelRatio,
-                window.innerHeight * window.devicePixelRatio
-            );
-        }
     }
 
     animate(nowMs) {
         requestAnimationFrame((t) => this.animate(t));
         this._loop.advance(nowMs, (dtSec) => this.update(dtSec));
-        if (this._retroPass) this._retroPass.material.uniforms.uTime.value = nowMs / 1000;
         if (this.composer) {
             this.composer.render();
         } else {
@@ -824,7 +806,6 @@ export class Game {
             // ignore
         }
         if (this._onKeyDownShoot) window.removeEventListener('keydown', this._onKeyDownShoot);
-        if (this._onKeyDownVisual) window.removeEventListener('keydown', this._onKeyDownVisual);
         if (this._onResize) window.removeEventListener('resize', this._onResize);
         if (this._onMouseDown) window.removeEventListener('mousedown', this._onMouseDown);
 

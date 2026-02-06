@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export class SpawnSystem {
   /**
@@ -8,8 +9,8 @@ export class SpawnSystem {
     this.game = game;
 
     // Reused geometries; scale instances instead of allocating new geometry per spawn.
-    this._fragmentGeo = new THREE.IcosahedronGeometry(1, 0);
-    this._gemGeo = new THREE.IcosahedronGeometry(1, 0);
+    this._fragmentGeo = new THREE.BoxGeometry(1, 1, 1);
+    this._gemGeo = new THREE.BoxGeometry(1, 1, 1);
     this._coinGeo = new THREE.BoxGeometry(1, 1, 1);
 
     /** @type {THREE.Mesh[]} */
@@ -100,7 +101,7 @@ export class SpawnSystem {
       const ring = loot.userData.ring;
       const glow = loot.userData.glow;
       const baseScale = loot.userData.baseScale;
-      loot.userData = { ring, glow, baseScale, entityId };
+      loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
 
       g.world.transform.set(entityId, {
         x: loot.position.x,
@@ -134,7 +135,7 @@ export class SpawnSystem {
     const entityId = loot.userData?.entityId;
     if (entityId) this.game.renderRegistry.unbind(entityId);
     loot.visible = false;
-    loot.userData = { ring: loot.userData?.ring, glow: loot.userData?.glow };
+    loot.userData = { ring: loot.userData?.ring, glow: loot.userData?.glow, type: kind };
 
     if (kind === 'gem') {
       if (this._gemLootPool.length < this._lootPoolLimit) this._gemLootPool.push(loot);
@@ -190,7 +191,7 @@ export class SpawnSystem {
       roughness: 0.0
     });
     const mesh = new THREE.Mesh(this._gemGeo, mat);
-    mesh.scale.setScalar(2.0);
+    mesh.scale.set(2.0, 2.0, 2.0);
 
     const glow = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -204,16 +205,7 @@ export class SpawnSystem {
     glow.scale.set(12, 12, 1);
     mesh.add(glow);
 
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(3.0, 0.03, 8, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.6,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending
-      })
-    );
+    const ring = this._createSquareRing({ size: 3.2, thickness: 0.12, color: 0x00ffff, opacity: 0.55 });
     ring.userData = { isLootRing: true };
     ring.rotation.x = Math.PI / 2;
     mesh.add(ring);
@@ -261,16 +253,7 @@ export class SpawnSystem {
     glow.scale.set(12, 12, 1);
     mesh.add(glow);
 
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(2.5, 0.03, 8, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0xffaa00,
-        transparent: true,
-        opacity: 0.6,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending
-      })
-    );
+    const ring = this._createSquareRing({ size: 2.8, thickness: 0.1, color: 0xffaa00, opacity: 0.55 });
     ring.userData = { isLootRing: true };
     ring.rotation.x = Math.PI / 2;
     mesh.add(ring);
@@ -287,5 +270,30 @@ export class SpawnSystem {
     dst.emissiveIntensity = src.emissiveIntensity ?? dst.emissiveIntensity;
     dst.roughness = src.roughness ?? dst.roughness;
     dst.metalness = src.metalness ?? dst.metalness;
+  }
+
+  _createSquareRing({ size, thickness, color, opacity }) {
+    const segGeoH = new THREE.BoxGeometry(size, thickness, thickness);
+    const segGeoV = new THREE.BoxGeometry(thickness, size, thickness);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const top = segGeoH.clone();
+    top.translate(0, size * 0.5, 0);
+    const bot = segGeoH.clone();
+    bot.translate(0, -size * 0.5, 0);
+    const left = segGeoV.clone();
+    left.translate(-size * 0.5, 0, 0);
+    const right = segGeoV.clone();
+    right.translate(size * 0.5, 0, 0);
+
+    const merged = mergeGeometries([top, bot, left, right], false);
+    const mesh = new THREE.Mesh(merged, mat);
+    return mesh;
   }
 }

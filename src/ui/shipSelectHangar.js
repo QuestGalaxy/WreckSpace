@@ -157,25 +157,27 @@ export class ShipSelectHangar {
 
   _initThree() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0b12);
-    this.scene.fog = new THREE.FogExp2(0x05060d, 0.0006 / this.worldScale);
+    // Match in-game: lifted blacks so the hangar isn't murky.
+    this.scene.background = new THREE.Color(0x15162c);
+    this.scene.fog = new THREE.FogExp2(0x0a0b1e, 0.00025 / this.worldScale);
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 5000 * this.worldScale);
-    // Closer + lower camera so ships read big and centered.
-    this.camera.position.set(0, 46 * this.worldScale, 132 * this.worldScale);
-    // Look a bit lower so the ship sits higher in frame (closer to the header).
-    this.camera.lookAt(0, 16 * this.worldScale, 0);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 5000 * this.worldScale);
+    // Requested: a bit farther and higher so the ship reads better.
+    this.camera.position.set(18 * this.worldScale, 66 * this.worldScale, 182 * this.worldScale);
+    this.camera.lookAt(0, 22 * this.worldScale, 0);
 
+    // Hangar should be crystal clear (no CRT pixelation).
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    // Avoid filmic/realistic grading; CRT pass handles style.
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this._bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.85, 0.22, 0.35);
+    // Keep bloom very subtle to avoid haze.
+    this._bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.08, 0.55);
     this.composer.addPass(this._bloom);
 
     this.textures = createVoxelTextures();
@@ -207,24 +209,28 @@ export class ShipSelectHangar {
     const ws = this.worldScale;
 
     // Lights
-    this.scene.add(new THREE.AmbientLight(0x9fb7ff, 0.35));
-    this.scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x06030d, 0.55));
+    // Match the in-game vibe: strong ambient + one key directional + small fill/rim.
+    this.scene.add(new THREE.AmbientLight(0x8b8bb0, 1.35));
 
-    const key = new THREE.SpotLight(0xffffff, 2.0, 1200 * ws, Math.PI / 5, 0.35, 1.2);
-    key.position.set(260 * ws, 320 * ws, 180 * ws);
+    const key = new THREE.DirectionalLight(0xffffff, 1.15);
+    key.position.set(140 * ws, 220 * ws, 180 * ws);
     key.target.position.set(0, 0, 0);
     this.scene.add(key);
     this.scene.add(key.target);
     this._key = key;
 
-    const rim = new THREE.DirectionalLight(0x66ccff, 0.55);
+    const fill = new THREE.DirectionalLight(0xffe8cc, 0.55);
+    fill.position.set(120 * ws, 110 * ws, 260 * ws);
+    this.scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0x66ccff, 0.75);
     rim.position.set(-200 * ws, 120 * ws, -240 * ws);
     this.scene.add(rim);
 
     // Floor
     const floorTex = this.textures.panels;
     floorTex.repeat.set(24, 24);
-    const floorMat = this._voxLit({ color: 0x9aa0aa, map: floorTex, emissive: 0x0b0c12, emissiveIntensity: 0.05 });
+    const floorMat = this._voxLit({ color: 0xb3b8c6, map: floorTex, emissive: 0x1a1c28, emissiveIntensity: 0.10 });
     floorMat.roughness = 0.95;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(1800 * ws, 1800 * ws, 1, 1), floorMat);
     floor.rotation.x = -Math.PI / 2;
@@ -234,13 +240,13 @@ export class ShipSelectHangar {
     // Back wall
     const wallTex = this.textures.panelsDark;
     wallTex.repeat.set(14, 6);
-    const wallMat = this._voxLit({ color: 0x1b1f2a, map: wallTex, emissive: 0x0b1633, emissiveIntensity: 0.08 });
+    const wallMat = this._voxLit({ color: 0x2b3146, map: wallTex, emissive: 0x123060, emissiveIntensity: 0.14 });
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(1400 * ws, 560 * ws), wallMat);
     wall.position.set(0, 240 * ws, -520 * ws);
     this.scene.add(wall);
 
     // Side pillars for depth
-    const pillarMat = this._voxLit({ color: 0x2a3144, map: wallTex, emissive: 0x070814, emissiveIntensity: 0.06 });
+    const pillarMat = this._voxLit({ color: 0x37405b, map: wallTex, emissive: 0x0b0d1a, emissiveIntensity: 0.08 });
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 5; i++) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(70 * ws, 520 * ws, 70 * ws), pillarMat);
@@ -250,7 +256,7 @@ export class ShipSelectHangar {
     }
 
     // Emissive runway strips
-    const stripMat = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending });
+    const stripMat = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending });
     for (const sx of [-1, 1]) {
       const strip = new THREE.Mesh(new THREE.PlaneGeometry(20 * ws, 1200 * ws), stripMat);
       strip.rotation.x = -Math.PI / 2;
@@ -354,8 +360,8 @@ export class ShipSelectHangar {
 
     // Animate key light sweep a bit for depth.
     if (this._key) {
-      this._key.position.x = 260 * this.worldScale + Math.sin(t * 0.6) * 80 * this.worldScale;
-      this._key.position.z = 180 * this.worldScale + Math.cos(t * 0.5) * 60 * this.worldScale;
+      this._key.position.x = 140 * this.worldScale + Math.sin(t * 0.6) * 60 * this.worldScale;
+      this._key.position.z = 180 * this.worldScale + Math.cos(t * 0.5) * 45 * this.worldScale;
     }
 
     // Dust drift

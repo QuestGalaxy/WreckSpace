@@ -133,7 +133,8 @@ body {
     background: linear-gradient(135deg, rgba(8, 16, 30, 0.82) 0%, rgba(6, 10, 18, 0.62) 100%);
     border: 1px solid rgba(160, 220, 255, 0.22);
     box-shadow: 0 0 24px rgba(0, 255, 255, 0.08), inset 0 0 26px rgba(0, 255, 255, 0.06);
-    backdrop-filter: blur(6px);
+    /* Avoid blurring the 3D hangar behind the UI. */
+    backdrop-filter: none;
     padding: 12px 12px 10px 12px;
     border-radius: 10px;
 }
@@ -482,7 +483,7 @@ body {
     width: 44px;
     height: 44px;
     pointer-events: none;
-    opacity: 0.72;
+    opacity: 0.86;
     transition: transform 120ms ease-out, opacity 120ms ease-out;
     will-change: left, top, transform;
 }
@@ -493,9 +494,9 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    border: 1px solid rgba(0, 255, 255, 0.35);
+    border: 1px solid rgba(0, 255, 255, 0.50);
     border-radius: 50%;
-    box-shadow: 0 0 4px rgba(0, 204, 255, 0.45);
+    box-shadow: 0 0 5px rgba(0, 204, 255, 0.60);
     box-sizing: border-box;
     transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
 }
@@ -509,13 +510,13 @@ body {
     background: #fff;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 3px rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.95);
     transition: box-shadow 180ms ease-out, opacity 180ms ease-out;
 }
 
 .crosshair-line {
     position: absolute;
-    background: rgba(0, 255, 255, 0.18);
+    background: rgba(0, 255, 255, 0.26);
     transition: background 180ms ease-out, opacity 180ms ease-out;
 }
 
@@ -598,21 +599,21 @@ body {
 
 /* TARGET LOCK STYLES */
 .locked {
-    opacity: 0.78;
+    opacity: 0.92;
 }
 
 #crosshair-container.locked .crosshair-ring {
-    border-color: rgba(255, 80, 80, 0.30);
-    box-shadow: 0 0 6px rgba(255, 90, 90, 0.35), inset 0 0 6px rgba(255, 90, 90, 0.18);
+    border-color: rgba(255, 80, 80, 0.40);
+    box-shadow: 0 0 7px rgba(255, 90, 90, 0.45), inset 0 0 7px rgba(255, 90, 90, 0.24);
 }
 
 #crosshair-container.locked .crosshair-line {
-    background: rgba(255, 90, 90, 0.12);
+    background: rgba(255, 90, 90, 0.18);
 }
 
 #crosshair-container.locked .crosshair-dot {
     opacity: 0.92;
-    box-shadow: 0 0 4px rgba(255, 140, 140, 0.55);
+    box-shadow: 0 0 5px rgba(255, 140, 140, 0.65);
 }
 
 /* Smooth return to center when unlocked */
@@ -621,15 +622,15 @@ body {
 }
 
 @keyframes hit-ring {
-    0% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    0% { box-shadow: 0 0 5px rgba(0, 204, 255, 0.60); }
     55% { box-shadow: 0 0 12px rgba(150, 255, 255, 0.75); }
-    100% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    100% { box-shadow: 0 0 5px rgba(0, 204, 255, 0.60); }
 }
 
 @keyframes fire-ring {
-    0% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    0% { box-shadow: 0 0 5px rgba(0, 204, 255, 0.60); }
     60% { box-shadow: 0 0 10px rgba(255, 190, 90, 0.70); }
-    100% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.45); }
+    100% { box-shadow: 0 0 5px rgba(0, 204, 255, 0.60); }
 }
 
 /* MESSAGES */

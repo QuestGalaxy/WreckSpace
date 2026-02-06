@@ -60,8 +60,6 @@ export class CombatSystem {
     }
 
     g.currentTargetEntityId = bestTargetEntityId;
-    // Keep the old field for any transitional code.
-    g.currentTarget = bestTargetEntityId ? g.renderRegistry.get(bestTargetEntityId) : null;
 
     if (!g.hud) return;
     if (g.currentTargetEntityId) {

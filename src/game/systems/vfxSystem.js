@@ -272,8 +272,13 @@ export class VfxSystem {
         p.rotation.z += p.userData.rotVelocity.z * k;
         // Stronger drag keeps cubes closer and makes the effect feel more \"arcade\" than \"shrapnel\".
         p.userData.velocity.multiplyScalar(Math.pow(0.97, k));
-        if (p.material && p.material.opacity != null) {
-          p.material.opacity *= Math.pow(0.965, k);
+        // Fade out near the end instead of shrinking opacity immediately.
+        const initialLife = p.userData.initialLife ?? null;
+        if (p.material && p.material.opacity != null && initialLife && initialLife > 0.0001) {
+          const lifeRatio = THREE.MathUtils.clamp(p.userData.life / initialLife, 0, 1);
+          const baseOpacity = p.userData.baseOpacity ?? 0.98;
+          // Ease-out fade (linger solid, then disappear).
+          p.material.opacity = baseOpacity * Math.pow(lifeRatio, 1.65);
         }
       } else if (p.userData.isSmoke) {
         p.scale.multiplyScalar(Math.pow(1.02, k));

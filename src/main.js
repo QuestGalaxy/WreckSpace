@@ -1,11 +1,13 @@
 import { spaceships } from './spaceshipData.js';
 import { Game } from './game.js';
+import { HudController } from './ui/hudController.js';
 
 const selectionScreen = document.getElementById('selection-screen');
 const spaceshipList = document.getElementById('spaceship-list');
 const hud = document.getElementById('hud');
 
 let game = null;
+const hudController = new HudController(document);
 
 function initSelectionScreen() {
     spaceships.forEach(ship => {
@@ -69,7 +71,7 @@ function startGame(selectedShip) {
     hud.classList.remove('hidden');
     
     // Initialize the 3D Game
-    game = new Game(selectedShip);
+    game = new Game(selectedShip, { hud: hudController });
     game.init();
 }
 

@@ -10,8 +10,53 @@
     <div id="ui-container">
         <!-- Spaceship Selection Screen -->
         <div id="selection-screen" class="screen">
-            <h1>Select Your Spaceship</h1>
-            <div id="spaceship-list"></div>
+            <div id="hangar-ui">
+                <div class="hangar-header">
+                    <div class="hangar-kicker">HANGAR BAY</div>
+                    <h1>Choose Your Ship</h1>
+                </div>
+
+                <div class="hangar-body">
+                    <button id="ship-prev" class="hangar-nav" aria-label="Previous ship">‹</button>
+
+                    <div class="hangar-panel">
+                        <div class="ship-name-row">
+                            <div id="ship-name" class="ship-name">Ship</div>
+                            <div id="ship-class" class="ship-class">Class</div>
+                        </div>
+
+                        <div class="stat-row power">
+                            <div class="stat-label"><span>Firepower</span> <span id="ship-power">0</span></div>
+                            <div class="stat-track">
+                                <div id="ship-power-bar" class="stat-value-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="stat-row speed">
+                            <div class="stat-label"><span>Speed</span> <span id="ship-speed">0</span></div>
+                            <div class="stat-track">
+                                <div id="ship-speed-bar" class="stat-value-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="stat-row storage">
+                            <div class="stat-label"><span>Cargo Bay</span> <span id="ship-storage">0</span></div>
+                            <div class="stat-track">
+                                <div id="ship-storage-bar" class="stat-value-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <p id="ship-desc" class="card-desc"></p>
+
+                        <div class="hangar-actions">
+                            <button id="ship-select" class="hangar-select">Launch</button>
+                            <div class="hangar-hint">← → switch, Enter launch, swipe</div>
+                        </div>
+                    </div>
+
+                    <button id="ship-next" class="hangar-nav" aria-label="Next ship">›</button>
+                </div>
+            </div>
         </div>
 
         <!-- HUD (In-game UI) -->

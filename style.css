@@ -47,8 +47,18 @@ body {
 
 /* SELECTION SCREEN REVAMP */
 #selection-screen {
-    background: radial-gradient(circle at center, rgba(10, 20, 40, 0.4) 0%, rgba(0, 0, 0, 0.9) 100%);
-    backdrop-filter: blur(5px);
+    background: transparent;
+    backdrop-filter: none;
+    justify-content: flex-end;
+    padding-bottom: 40px;
+}
+
+#selection-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 30%, rgba(12, 18, 40, 0.10) 0%, rgba(0, 0, 0, 0.55) 75%, rgba(0, 0, 0, 0.75) 100%);
+    pointer-events: none;
 }
 
 #selection-screen h1 {
@@ -63,6 +73,11 @@ body {
     text-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
     margin-bottom: 60px;
     position: relative;
+}
+
+#hangar-ui {
+    position: relative;
+    z-index: 2;
 }
 
 #selection-screen h1::after {
@@ -80,6 +95,112 @@ body {
     display: flex;
     gap: 40px;
     perspective: 1000px;
+}
+
+/* HANGAR UI (single-screen carousel) */
+#hangar-ui {
+    width: min(860px, calc(100vw - 36px));
+    pointer-events: auto;
+    user-select: none;
+}
+
+.hangar-header {
+    margin: 0 auto 18px auto;
+    text-align: center;
+}
+
+.hangar-kicker {
+    font-size: 0.75rem;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: rgba(200, 230, 255, 0.7);
+    margin-bottom: 10px;
+}
+
+#hangar-ui h1 {
+    margin: 0;
+    font-size: 2.4rem;
+}
+
+.hangar-body {
+    display: grid;
+    grid-template-columns: 52px 1fr 52px;
+    align-items: stretch;
+    gap: 14px;
+}
+
+.hangar-panel {
+    background: linear-gradient(135deg, rgba(8, 16, 30, 0.82) 0%, rgba(6, 10, 18, 0.62) 100%);
+    border: 1px solid rgba(160, 220, 255, 0.22);
+    box-shadow: 0 0 24px rgba(0, 255, 255, 0.08), inset 0 0 26px rgba(0, 255, 255, 0.06);
+    backdrop-filter: blur(6px);
+    padding: 16px 16px 14px 16px;
+    border-radius: 10px;
+}
+
+.ship-name-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.ship-name {
+    font-size: 1.4rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    text-shadow: 0 0 18px rgba(0, 255, 255, 0.18);
+}
+
+.hangar-nav {
+    background: linear-gradient(180deg, rgba(8, 18, 34, 0.72), rgba(0, 0, 0, 0.42));
+    border: 1px solid rgba(0, 255, 255, 0.22);
+    color: rgba(220, 255, 255, 0.92);
+    border-radius: 10px;
+    font-size: 2.2rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+    margin-top: 0;
+    padding: 0;
+}
+
+.hangar-nav:hover {
+    transform: translateY(-2px);
+    border-color: rgba(0, 255, 255, 0.6);
+    box-shadow: 0 0 24px rgba(0, 255, 255, 0.18);
+}
+
+.hangar-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    margin-top: 10px;
+}
+
+.hangar-select {
+    background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(0, 136, 255, 0.14));
+    border: 1px solid rgba(0, 255, 255, 0.6);
+    color: rgba(225, 250, 255, 0.95);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-top: 0;
+}
+
+.hangar-select:hover {
+    background: rgba(0, 255, 255, 0.18);
+    box-shadow: 0 0 26px rgba(0, 255, 255, 0.22);
+}
+
+.hangar-hint {
+    font-size: 0.85rem;
+    color: rgba(200, 230, 255, 0.66);
+    letter-spacing: 0.5px;
 }
 
 .spaceship-card {

@@ -16,7 +16,8 @@ import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
 import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
-import { createPixelTileTexture } from './render/pixelTiles.js';
+import { createVoxelTextures } from './render/voxelTextures.js';
+import { createVoxelShipModel } from './render/voxelShipFactory.js';
 
 export class Game {
     /**
@@ -444,103 +445,20 @@ export class Game {
     }
 
     _initVoxelTextures() {
-        // Shared pixel-art tiles. We tint in materials via `color` so textures stay neutral.
-        this._voxelTextures = {
-            panels: createPixelTileTexture({
-                kind: 'panels',
-                base: 0xb9bec8,
-                dark: 0x7f8796,
-                light: 0xe7eaf0
-            }),
-            panelsDark: createPixelTileTexture({
-                kind: 'panels',
-                base: 0x222738,
-                dark: 0x13192a,
-                light: 0x3b4766
-            }),
-            rock: createPixelTileTexture({
-                kind: 'rock',
-                base: 0x8a90a1,
-                dark: 0x5e6577,
-                light: 0xb1b7c8
-            }),
-            stripes: createPixelTileTexture({
-                kind: 'stripes',
-                base: 0xffcc44,
-                dark: 0x2a2a33,
-                light: 0xffffff
-            })
-        };
+        this._voxelTextures = createVoxelTextures();
     }
 
     createPlayerShip() {
-        const group = new THREE.Group();
-        
-        const mainColor = this.shipData.color ?? 0x44aaff;
+        const { group, engineOffsets, muzzleOffset } = createVoxelShipModel({
+            shipData: this.shipData,
+            voxelSize: this.voxel.size,
+            textures: this._voxelTextures,
+            theme: this.theme,
+            voxLit: (opts) => this._voxLit(opts)
+        });
 
-        // Voxel model: build separate layers so we can tint materials.
-        const hull = new Set();
-        const dark = new Set();
-        const accent = new Set();
-        const glass = new Set();
-        const thruster = new Set();
-
-        // Fuselage
-        addBox(hull, -1, -1, -6, 1, 1, 6);
-        addBox(hull, -2, -1, -3, 2, 1, 2);
-        // Nose
-        addBox(hull, -1, -1, 7, 1, 1, 10);
-        addBox(accent, -1, -2, 6, 1, -2, 10);
-
-        // Wings
-        addBox(hull, -6, 0, -2, -3, 0, 4);
-        addBox(hull, 3, 0, -2, 6, 0, 4);
-        addBox(dark, -7, 0, -1, -6, 0, 3);
-        addBox(dark, 6, 0, -1, 7, 0, 3);
-
-        // Cockpit
-        addBox(glass, -1, 2, 0, 1, 3, 3);
-        addBox(dark, -1, 1, -2, 1, 1, -1);
-
-        // Engines
-        addBox(dark, -3, -1, -8, -1, 1, -6);
-        addBox(dark, 1, -1, -8, 3, 1, -6);
-        addBox(thruster, -2, 0, -9, -2, 0, -9);
-        addBox(thruster, 2, 0, -9, 2, 0, -9);
-
-        // Guns
-        addBox(accent, -6, 0, 5, -5, 0, 7);
-        addBox(accent, 5, 0, 5, 6, 0, 7);
-
-        const hullMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size, faceShading: true }),
-            this._voxLit({ color: mainColor, map: this._voxelTextures.panels, emissive: 0x0b0b12, emissiveIntensity: 0.06 })
-        );
-        const darkMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size, faceShading: true }),
-            this._voxLit({ color: this.theme.ship.dark, map: this._voxelTextures.panelsDark, emissive: 0x050512, emissiveIntensity: 0.10 })
-        );
-        const accentMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(accent, { voxelSize: this.voxel.size, faceShading: true }),
-            this._voxLit({ color: this.theme.ship.accent, map: this._voxelTextures.stripes, emissive: 0x3a1b00, emissiveIntensity: 0.16 })
-        );
-        const glassMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(glass, { voxelSize: this.voxel.size, faceShading: false }),
-            this._voxLit({ color: this.theme.ship.glass, map: null, emissive: 0x00aaff, emissiveIntensity: 0.75 })
-        );
-        const thrusterMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(thruster, { voxelSize: this.voxel.size, faceShading: false }),
-            this._voxLit({ color: this.theme.ship.thruster, map: null, emissive: this.theme.ship.thruster, emissiveIntensity: 2.2 })
-        );
-
-        group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh);
-
-        // Store engine positions for trails (Tip of the glow)
-        this.engineOffsets = [
-            new THREE.Vector3(-2, 0, -10).multiplyScalar(this.voxel.size),
-            new THREE.Vector3(2, 0, -10).multiplyScalar(this.voxel.size)
-        ];
-
+        this.engineOffsets = engineOffsets;
+        this.shipMuzzleOffset = muzzleOffset;
         this.player = group;
         this.scene.add(this.player);
         

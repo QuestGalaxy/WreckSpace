@@ -179,9 +179,10 @@ export class CombatSystem {
     this._playerPos.set(pt.x, pt.y, pt.z);
     this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
 
-    // Scale muzzle position with voxel size so bigger blocks keep proportions.
+    // Muzzle position is ship-model dependent; default if not provided.
     const vox = g.voxel?.size ?? 1;
-    this._noseOffset.set(0, 0, 2 * vox);
+    if (g.shipMuzzleOffset) this._noseOffset.copy(g.shipMuzzleOffset);
+    else this._noseOffset.set(0, 0, 2 * vox);
 
     // Ensure audio is ready on first interaction
     g.soundManager.init();

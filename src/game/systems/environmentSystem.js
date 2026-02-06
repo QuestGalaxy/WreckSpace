@@ -20,6 +20,7 @@ export class EnvironmentSystem {
     const g = this.game;
     this.updateObjectRotation(dtSec);
     this.syncObjectsFromWorld();
+    this.updateHealthBarLayouts();
     this.updateSpaceDust();
     this.updateRetroBackdrop();
     this.updateDistanceLabels(dtSec);
@@ -46,6 +47,19 @@ export class EnvironmentSystem {
       obj.position.set(t.x, t.y, t.z);
       obj.rotation.set(t.rx, t.ry, t.rz);
       obj.scale.set(t.sx, t.sy, t.sz);
+    }
+  }
+
+  updateHealthBarLayouts() {
+    const g = this.game;
+    if (!g.objects || !g.layoutHealthBar) return;
+
+    // Health bars are drawn when HP changes (on hit), but their screen size needs to stay stable as
+    // camera distance changes. Re-layout visible bars every frame; avoid re-drawing the canvas here.
+    for (const obj of g.objects) {
+      const hb = obj?.userData?.healthBar;
+      if (!hb?.sprite?.visible) continue;
+      g.layoutHealthBar(obj);
     }
   }
 

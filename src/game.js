@@ -851,12 +851,18 @@ export class Game {
     }
 
     createHealthBar(object) {
+        const ws = this.worldScale ?? 1;
         const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 16;
+        // Keep it intentionally simple and small on screen.
+        canvas.width = 96;
+        canvas.height = 12;
         const context = canvas.getContext('2d');
         
         const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
         const material = new THREE.SpriteMaterial({ 
             map: texture,
             transparent: true,
@@ -865,19 +871,54 @@ export class Game {
         });
         
         const sprite = new THREE.Sprite(material);
-         sprite.scale.set(1.5, 0.15, 1); // Much smaller and more elegant
-         sprite.position.y = 1.2; // Positioned right above the object
-         sprite.visible = false;
+        // IMPORTANT: sprite is parented under objects that are scaled up/down.
+        // Keep the bar a constant SCREEN size by scaling with camera distance.
+        sprite.visible = false;
         
         object.add(sprite);
         object.userData.healthBar = {
             sprite: sprite,
             canvas: canvas,
             context: context,
-            texture: texture
+            texture: texture,
+            // Desired on-screen size. This keeps asteroids and planets consistent.
+            pixelSize: { w: 90, h: 6 },
+            padWorld: 12 * ws
         };
         
         this.updateHealthBar(object);
+    }
+
+    layoutHealthBar(object) {
+        const hb = object?.userData?.healthBar;
+        if (!hb || !hb.sprite) return;
+        if (!this.camera) return;
+
+        // Because the sprite is parented under a (typically uniformly) scaled object, we scale it inversely
+        // so its WORLD size matches our computed "keep X pixels on screen" goal.
+        if (!this._hbTmpObjWorld) this._hbTmpObjWorld = new THREE.Vector3();
+        if (!this._hbTmpCamSpace) this._hbTmpCamSpace = new THREE.Vector3();
+        if (!this._hbTmpWorldScale) this._hbTmpWorldScale = new THREE.Vector3();
+        const objWorldScaleV = object.getWorldScale(this._hbTmpWorldScale);
+        const objWorldScale = Math.max(0.0001, objWorldScaleV.x);
+
+        // Use camera-space depth rather than Euclidean distance so off-center targets keep consistent UI size.
+        object.getWorldPosition(this._hbTmpObjWorld);
+        this._hbTmpCamSpace.copy(this._hbTmpObjWorld).applyMatrix4(this.camera.matrixWorldInverse);
+        const depth = Math.max(0.001, -this._hbTmpCamSpace.z);
+
+        const vh = this.renderer?.domElement?.clientHeight || window.innerHeight || 720;
+        const fovRad = THREE.MathUtils.degToRad(this.camera.fov);
+        const worldHeight = 2 * depth * Math.tan(fovRad * 0.5);
+        const unitsPerPx = worldHeight / vh;
+
+        const desiredWorldW = hb.pixelSize.w * unitsPerPx;
+        const desiredWorldH = hb.pixelSize.h * unitsPerPx;
+        hb.sprite.scale.set(desiredWorldW / objWorldScale, desiredWorldH / objWorldScale, 1);
+
+        // Our voxel objects are unit-radius geometry scaled uniformly, so radius ~= scale.x.
+        const desiredYWorld = objWorldScale + hb.padWorld;
+        hb.sprite.position.set(0, desiredYWorld / objWorldScale, 0);
     }
 
     updateHealthBar(object) {
@@ -885,6 +926,8 @@ export class Game {
         if (!hb) return;
         
         const { context, canvas, texture } = hb;
+        this.layoutHealthBar(object);
+
         const entityId = object.userData.entityId;
         const h = entityId ? this.world.getHealth(entityId) : null;
         if (!h) return;
@@ -892,13 +935,16 @@ export class Game {
         
         context.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Background
-        context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        // Ultra-simple bar: faint background track + single-color fill.
+        context.fillStyle = 'rgba(0, 0, 0, 0.28)';
         context.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Health bar
-        context.fillStyle = hpPercent > 0.5 ? '#00ff00' : (hpPercent > 0.2 ? '#ffff00' : '#ff0000');
-        context.fillRect(2, 2, (canvas.width - 4) * hpPercent, canvas.height - 4);
+
+        const inset = 1;
+        const w = canvas.width - inset * 2;
+        const hpx = canvas.height - inset * 2;
+
+        context.fillStyle = 'rgba(120, 255, 180, 0.95)';
+        context.fillRect(inset, inset, Math.max(0, w * hpPercent), hpx);
         
         texture.needsUpdate = true;
     }

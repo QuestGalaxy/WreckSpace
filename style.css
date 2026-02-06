@@ -1,0 +1,552 @@
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+}
+
+#game-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+#ui-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.screen {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    pointer-events: auto;
+    transition: opacity 0.3s ease;
+}
+
+.hidden {
+    opacity: 0;
+    pointer-events: none;
+    display: none;
+}
+
+/* SELECTION SCREEN REVAMP */
+#selection-screen {
+    background: radial-gradient(circle at center, rgba(10, 20, 40, 0.4) 0%, rgba(0, 0, 0, 0.9) 100%);
+    backdrop-filter: blur(5px);
+}
+
+#selection-screen h1 {
+    font-size: 3rem;
+    font-weight: 300;
+    letter-spacing: 10px;
+    text-transform: uppercase;
+    background: linear-gradient(to bottom, #fff, #0cf);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+    margin-bottom: 60px;
+    position: relative;
+}
+
+#selection-screen h1::after {
+    content: '';
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #0cf, transparent);
+}
+
+#spaceship-list {
+    display: flex;
+    gap: 40px;
+    perspective: 1000px;
+}
+
+.spaceship-card {
+    position: relative;
+    background: rgba(10, 20, 30, 0.7);
+    border: 1px solid rgba(0, 255, 255, 0.1);
+    border-radius: 4px; /* Slight round, but mostly sharp */
+    padding: 30px;
+    width: 260px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    overflow: hidden;
+    /* Sci-fi shape clip */
+    clip-path: polygon(
+        20px 0, 100% 0, 
+        100% calc(100% - 20px), calc(100% - 20px) 100%, 
+        0 100%, 0 20px
+    );
+}
+
+.spaceship-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+    z-index: -1;
+}
+
+/* Corner Accents */
+.spaceship-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 1px solid transparent;
+    /* Corner borders using gradient masks or just psuedo elements */
+    box-shadow: inset 0 0 20px rgba(0, 255, 255, 0.05);
+    pointer-events: none;
+}
+
+.spaceship-card:hover {
+    transform: translateY(-15px) scale(1.05);
+    border-color: #0cf;
+    box-shadow: 0 10px 40px rgba(0, 255, 255, 0.2);
+    background: rgba(10, 30, 50, 0.8);
+}
+
+.spaceship-card h3 {
+    margin-top: 0;
+    font-size: 1.8rem;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 5px;
+    text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.ship-class {
+    color: #88aadd;
+    font-size: 0.8rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 25px;
+    display: block;
+    opacity: 0.8;
+}
+
+/* STATS BARS */
+.stat-row {
+    display: flex;
+    flex-direction: column; /* Stack label and bar */
+    margin-bottom: 12px;
+}
+
+.stat-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #aaccff;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.stat-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.stat-value-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0088ff, #00ffff);
+    width: 0%; /* Animate to width */
+    transition: width 1s ease-out;
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+/* Specific colors for different stats */
+.stat-row.power .stat-value-bar { background: linear-gradient(90deg, #ff4444, #ff8888); box-shadow: 0 0 10px rgba(255, 68, 68, 0.5); }
+.stat-row.speed .stat-value-bar { background: linear-gradient(90deg, #44ff44, #88ff88); box-shadow: 0 0 10px rgba(68, 255, 68, 0.5); }
+.stat-row.storage .stat-value-bar { background: linear-gradient(90deg, #ffaa00, #ffdd44); box-shadow: 0 0 10px rgba(255, 170, 0, 0.5); }
+
+.card-desc {
+    font-size: 0.85rem;
+    color: #8899aa;
+    line-height: 1.4;
+    margin-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 15px;
+    font-style: italic;
+}
+
+.select-btn {
+    margin-top: 20px;
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid #0cf;
+    color: #0cf;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.spaceship-card:hover .select-btn {
+    opacity: 1;
+    transform: translateY(0);
+    background: rgba(0, 204, 255, 0.1);
+}
+
+.spaceship-card:hover .select-btn:hover {
+    background: #0cf;
+    color: #000;
+    box-shadow: 0 0 20px #0cf;
+}
+
+/* HUD LAYOUT */
+#hud {
+    background: none;
+    padding: 0;
+    pointer-events: none;
+    display: block; /* Override flex from .screen */
+}
+
+.hud-panel {
+    position: absolute;
+    padding: 15px 25px;
+    background: linear-gradient(135deg, rgba(0, 20, 40, 0.8) 0%, rgba(0, 10, 20, 0.6) 100%);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.1), inset 0 0 20px rgba(0, 255, 255, 0.05);
+    backdrop-filter: blur(4px);
+    transform: skewX(-10deg); /* Sci-fi Angle */
+    pointer-events: auto;
+}
+
+/* Fix text skew inside panels */
+.hud-panel > * {
+    transform: skewX(10deg); 
+}
+
+/* CORNER POSITIONS */
+#hud-top-left {
+    top: 30px;
+    left: 30px;
+    border-left: 4px solid #0cf;
+    border-bottom-right-radius: 20px;
+}
+
+#hud-top-right {
+    top: 30px;
+    right: 30px;
+    border-right: 4px solid #ffd700;
+    border-bottom-left-radius: 20px;
+    text-align: right;
+}
+
+#hud-bottom-left {
+    bottom: 30px;
+    left: 30px;
+    border-left: 4px solid #0cf;
+    border-top-right-radius: 20px;
+}
+
+/* CONTENT STYLING */
+.hud-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 8px;
+}
+
+.hud-row.right-align {
+    justify-content: flex-end;
+}
+
+.hud-label {
+    font-size: 0.8rem;
+    color: #88aadd;
+    letter-spacing: 2px;
+    font-weight: 600;
+}
+
+.hud-value {
+    font-family: 'Courier New', Courier, monospace; /* Monospace for numbers */
+    font-size: 1.5rem;
+    color: #fff;
+    font-weight: bold;
+    text-shadow: 0 0 5px #0cf;
+}
+
+.hud-value.money {
+    color: #ffd700;
+    text-shadow: 0 0 5px #ffaa00;
+}
+
+/* BARS */
+.bar-container {
+    width: 200px;
+    height: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transform: skewX(-20deg);
+    overflow: hidden;
+}
+
+.bar-container.small {
+    width: 150px;
+    height: 6px;
+    margin-left: auto; /* Right align */
+}
+
+.bar-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #0088ff, #00ffff);
+    box-shadow: 0 0 10px #00ffff;
+    transition: width 0.2s ease-out;
+}
+
+.bar-fill.warning {
+    background: linear-gradient(90deg, #ff8800, #ffd700);
+    box-shadow: 0 0 10px #ffd700;
+}
+
+/* BOTTOM TEXT */
+.system-status {
+    color: #0cf;
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    margin-bottom: 5px;
+    opacity: 0.8;
+}
+
+.controls-hint {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+    letter-spacing: 1px;
+}
+
+/* CROSSHAIR */
+#crosshair-container {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    pointer-events: none;
+    opacity: 0.8;
+    transition: transform 0.1s;
+}
+
+.crosshair-ring {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 2px solid rgba(0, 255, 255, 0.5);
+    border-radius: 50%;
+    box-shadow: 0 0 5px #0cf;
+    box-sizing: border-box;
+}
+
+.crosshair-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    background: #fff;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 4px #fff;
+}
+
+.crosshair-line {
+    position: absolute;
+    background: rgba(0, 255, 255, 0.3);
+}
+
+.crosshair-line.horizontal {
+    top: 50%;
+    left: -20%;
+    width: 140%;
+    height: 1px;
+}
+
+.crosshair-line.vertical {
+    left: 50%;
+    top: -20%;
+    height: 140%;
+    width: 1px;
+}
+
+/* BASE MARKER */
+.hud-marker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: auto; /* Changed to auto so we can potentially interact, though mostly visual */
+    z-index: 10;
+    transition: opacity 0.2s;
+}
+
+.marker-arrow {
+    width: 0; 
+    height: 0; 
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-bottom: 15px solid #00ff88;
+    margin-bottom: 5px;
+    display: none; /* Hidden by default */
+    filter: drop-shadow(0 0 5px #00ff88);
+}
+
+.hud-marker.off-screen .marker-arrow {
+    display: block;
+}
+
+.hud-marker.off-screen .marker-label,
+.hud-marker.off-screen .marker-dist {
+    display: none; /* Hide text when off-screen to reduce clutter */
+}
+
+/* 
+.marker-icon removed as per request
+*/
+
+.marker-label {
+    font-size: 12px;
+    color: #00ff88;
+    font-weight: bold;
+    margin-top: 4px;
+    text-shadow: 0 0 5px #00ff88;
+}
+
+.marker-dist {
+    font-size: 10px;
+    color: #fff;
+    font-family: monospace;
+}
+
+/* CROSSHAIR ANIMATIONS */
+.hit {
+    animation: hit-pulse 0.15s ease-out;
+    border-color: #00ffff !important;
+    box-shadow: 0 0 20px #00ffff !important;
+}
+
+.firing {
+    transform: translate(-50%, -50%) scale(1.5);
+    border-color: #ffaa00 !important;
+}
+
+/* TARGET LOCK STYLES */
+.locked {
+    border-color: #ff0000 !important;
+    box-shadow: 0 0 15px #ff0000, inset 0 0 10px #ff0000 !important;
+    /* Transform handled in JS for positioning */
+    /* Transition for color and box-shadow, but NOT transform/left/top to avoid laggy tracking */
+    transition: border-color 0.2s, box-shadow 0.2s; 
+}
+
+/* Smooth return to center when unlocked */
+#crosshair-container:not(.locked) {
+    transition: left 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), top 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.2s;
+}
+
+.locked::after {
+    content: '';
+    position: absolute;
+    top: -10px; left: -10px; right: -10px; bottom: -10px;
+    border: 2px dashed #ff0000;
+    border-radius: 50%;
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes hit-pulse {
+    0% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(2.5); opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* MESSAGES */
+#messages {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+    width: 100%;
+}
+
+.message {
+    background: rgba(0, 20, 40, 0.8);
+    border: 1px solid #0cf;
+    color: #fff;
+    padding: 10px 20px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    animation: fadeOut 3s forwards;
+    display: inline-block;
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+#base-menu {
+    background: rgba(0, 20, 40, 0.9);
+}
+
+button {
+    background: #06c;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    margin-top: 20px;
+}
+
+button:hover {
+    background: #08f;
+}

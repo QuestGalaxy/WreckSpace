@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WreckSpace - 3D Space Prototype</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="ui-container">
+        <!-- Spaceship Selection Screen -->
+        <div id="selection-screen" class="screen">
+            <h1>Select Your Spaceship</h1>
+            <div id="spaceship-list"></div>
+        </div>
+
+        <!-- HUD (In-game UI) -->
+        <div id="hud" class="screen hidden">
+            <!-- Base Marker -->
+        <div id="base-marker" class="hud-marker">
+            <div class="marker-arrow"></div>
+            <div class="marker-label">BASE</div>
+            <div class="marker-dist">0m</div>
+        </div>
+
+            <!-- Top Left: Ship Status (Shields, Integrity) -->
+            <div id="hud-top-left" class="hud-panel">
+                <div class="hud-row">
+                    <div class="hud-label">SHIELD</div>
+                    <div class="bar-container">
+                        <div id="energy-bar" class="bar-fill"></div>
+                    </div>
+                    <div id="energy-val" class="hud-value">100%</div>
+                </div>
+            </div>
+
+            <!-- Top Right: Economy & Cargo -->
+            <div id="hud-top-right" class="hud-panel">
+                <div class="hud-row right-align">
+                    <div class="hud-value money" id="loot-val">0</div>
+                    <div class="hud-label">CREDITS</div>
+                </div>
+                <div class="hud-row right-align">
+                    <div class="hud-value" id="storage-text"><span id="storage-val">0</span>/<span id="max-storage-val">50</span></div>
+                    <div class="hud-label">CARGO</div>
+                </div>
+                <div class="bar-container small">
+                    <div id="storage-bar" class="bar-fill warning"></div>
+                </div>
+            </div>
+
+            <!-- Bottom Left: Systems / Hints -->
+            <div id="hud-bottom-left" class="hud-panel">
+                 <div class="system-status">SYSTEMS ONLINE</div>
+                 <div id="controls-hint" class="controls-hint">
+                    WASD: Drive | Z: Boost | SPACE: Fire | SHIFT: Dodge
+                </div>
+            </div>
+
+            <!-- Center: Crosshair -->
+            <div id="crosshair-container">
+                <div class="crosshair-ring"></div>
+                <div class="crosshair-dot"></div>
+                <div class="crosshair-line horizontal"></div>
+                <div class="crosshair-line vertical"></div>
+            </div>
+
+            <div id="messages"></div>
+        </div>
+
+        <!-- Base Station Menu -->
+        <div id="base-menu" class="screen hidden">
+            <h2>Base Station</h2>
+            <p>Loot deposited! Energy refilled.</p>
+            <button id="resume-btn">Resume Exploration</button>
+        </div>
+    </div>
+
+    <canvas id="game-canvas"></canvas>
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -116,9 +116,10 @@ export class Game {
     init() {
         // Scene setup
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(this.theme.sky);
+        this.scene.background = this._createSpaceBackgroundTexture(768);
         // Keep fog subtle; helps distant voxels read without looking realistic.
-        this.scene.fog = new THREE.FogExp2(this.theme.fog, 0.00018 / this.worldScale);
+        // Slightly stronger haze improves depth in space without becoming "smoky".
+        this.scene.fog = new THREE.FogExp2(this.theme.fog, 0.00022 / this.worldScale);
 
         // Camera setup - Reduced FOV to 60 for less distortion
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000 * this.worldScale);
@@ -135,7 +136,7 @@ export class Game {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         // Lift mids a bit; helps voxel readability without cranking lights.
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.15;
+        this.renderer.toneMappingExposure = 1.28;
 
         // Post-processing
         const renderScene = new RenderPass(this.scene, this.camera);
@@ -154,20 +155,27 @@ export class Game {
         // Lighting
         // Minecraft-ish: simple ambient + key + faint rim.
         // Ambient is intentionally a bit high; Minecraft-like face shading provides the depth.
-        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.1);
+        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.25);
         this.scene.add(ambientLight);
 
         // Soft "sky vs void" fill improves depth cues (tops read lighter than undersides).
-        const hemi = new THREE.HemisphereLight(0xcfe2ff, 0x0a0618, 0.55);
+        const hemi = new THREE.HemisphereLight(0xd6ecff, 0x080518, 0.75);
         this.scene.add(hemi);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
         sunLight.position.set(120, 160, 90);
         this.scene.add(sunLight);
 
         const rim = new THREE.DirectionalLight(0x66ccff, 0.35);
         rim.position.set(-120, 20, -180);
         this.scene.add(rim);
+
+        // Camera fill light: prevents "pitch black" faces when the main key is behind.
+        // Attach to camera so it always helps what's on screen without flattening everything.
+        this.scene.add(this.camera);
+        const camFill = new THREE.PointLight(0x9fd9ff, 0.55, 900 * this.worldScale, 2);
+        camFill.position.set(0, 0, 0);
+        this.camera.add(camFill);
 
         this._initVoxelTextures();
 
@@ -317,6 +325,49 @@ export class Game {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.minFilter = THREE.NearestFilter;
         tex.magFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    _createSpaceBackgroundTexture(size = 512) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Gradient base (slightly brighter center to give depth).
+        const g = ctx.createRadialGradient(size * 0.52, size * 0.45, size * 0.05, size * 0.5, size * 0.5, size * 0.75);
+        g.addColorStop(0, '#243a7a');
+        g.addColorStop(0.45, '#101a3a');
+        g.addColorStop(1, '#050714');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+
+        // Subtle color noise to avoid flatness.
+        const img = ctx.getImageData(0, 0, size, size);
+        const d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+            const n = (Math.random() - 0.5) * 14; // +-7
+            d[i] = Math.max(0, Math.min(255, d[i] + n));
+            d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+            d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+        }
+        ctx.putImageData(img, 0, 0);
+
+        // Few large faint stars (background only).
+        ctx.fillStyle = 'rgba(230,245,255,0.10)';
+        for (let i = 0; i < 140; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const r = Math.random() < 0.1 ? 2 : 1;
+            ctx.fillRect(x, y, r, r);
+        }
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
         tex.generateMipmaps = false;
         tex.needsUpdate = true;
         return tex;
@@ -495,6 +546,12 @@ export class Game {
         
         // Initial position
         this.player.position.set(0, 0, 0);
+
+        // "Headlight" so nearby asteroids read. Slightly forward and above.
+        const vox = this.voxel.size ?? 1;
+        this.shipLight = new THREE.PointLight(0x88ccff, 1.6, 850 * this.worldScale, 2);
+        this.shipLight.position.set(0, 2 * vox, 18 * vox);
+        this.player.add(this.shipLight);
 
         // World-first: player simulation state
         this.playerEntityId = this.world.createEntity();

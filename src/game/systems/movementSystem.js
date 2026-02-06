@@ -78,7 +78,8 @@ export class MovementSystem {
     }
 
     // Velocity & Thrust Calculation
-    const targetSpeedVal = (g.keys['KeyZ'] ? 5.0 : 2.5) * ws;
+    // Speed is scaled by worldScale; keep the same 2x boost ratio.
+    const targetSpeedVal = (g.keys['KeyZ'] ? 3.0 : 1.5) * ws;
     const speedLerp = 1 - Math.pow(1 - 0.05, k);
     g.currentSpeed = THREE.MathUtils.lerp(g.currentSpeed, targetSpeedVal, speedLerp);
 

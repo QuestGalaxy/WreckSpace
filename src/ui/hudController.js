@@ -118,6 +118,23 @@ export class HudController {
     this.crosshair.style.transform = 'translate(-50%, -50%)';
   }
 
+  // Used when the locked target disappears (e.g. destroyed). We want an immediate snap,
+  // not the CSS transition that can look like the crosshair is "stuck" for a moment.
+  crosshairUnlockAndSnapToCenter() {
+    if (!this.crosshair) return;
+
+    const prevTransition = this.crosshair.style.transition;
+    this.crosshair.style.transition = 'none';
+    this.crosshair.classList.remove('locked');
+    this.crosshair.style.left = '50%';
+    this.crosshair.style.top = '50%';
+    this.crosshair.style.transform = 'translate(-50%, -50%)';
+
+    // Force style flush so the snap happens before we restore transitions.
+    void this.crosshair.offsetWidth;
+    this.crosshair.style.transition = prevTransition;
+  }
+
   crosshairSetLockedTransform() {
     if (!this.crosshair) return;
     this.crosshair.style.transform = 'translate(-50%, -50%) rotate(45deg) scale(0.8)';
@@ -157,4 +174,3 @@ export class HudController {
     this.baseMarker.style.opacity = '1';
   }
 }
-

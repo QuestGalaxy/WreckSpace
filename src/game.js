@@ -76,11 +76,17 @@ export class Game {
         this.vfx = new VfxSystem(this);
         this.spawner = new SpawnSystem(this);
 
+        /** @type {{ kind: 'base' | 'planet', target: any, sprite: THREE.Sprite, yOffset: number, prefix: string, lastText: string, baseScale: THREE.Vector3 }[]} */
+        this.distanceLabelTargets = [];
+
         /** @type {number|null} */
         this.currentTargetEntityId = null;
 
         /** @type {number|null} */
         this.playerEntityId = null;
+
+        // When a locked target is destroyed, briefly suppress re-lock so the crosshair snaps back.
+        this._lockSuppressUntilSec = 0;
 
         // Visual direction: voxel / Minecraft-ish space.
         this.visual = { mode: 'voxel' };
@@ -356,6 +362,12 @@ export class Game {
         this.baseStation = group;
         this.baseStation.position.set(0, 0, -120 * this.worldScale);
         this.scene.add(this.baseStation);
+
+        this._registerDistanceLabel(this.baseStation, {
+            kind: 'base',
+            prefix: 'BASE',
+            yOffset: 40 * this.worldScale
+        });
         
         // Add a glow or some indicator
         const light = new THREE.PointLight(0x00ffff, 65, 90 * this.worldScale);
@@ -665,6 +677,12 @@ export class Game {
             this.scene.add(planet);
             this.objects.push(planet);
 
+            this._registerDistanceLabel(planet, {
+                kind: 'planet',
+                prefix: `P${i + 1}`,
+                yOffset: planet.scale.x * 1.05 + 30 * this.worldScale
+            });
+
             // Simple atmosphere glow (sprite, cheap).
             const glow = new THREE.Sprite(
                 new THREE.SpriteMaterial({
@@ -680,6 +698,78 @@ export class Game {
             glow.scale.set(3.6, 3.6, 1);
             planet.add(glow);
         }
+    }
+
+    _registerDistanceLabel(target, { kind, prefix, yOffset }) {
+        if (!this.scene || !target) return;
+        const ws = this.worldScale ?? 1;
+        const sprite = this._createDistanceLabelSprite();
+        sprite.position.copy(target.position);
+        sprite.position.y += yOffset;
+        this.scene.add(sprite);
+        this.distanceLabelTargets.push({ kind, target, sprite, yOffset, prefix, lastText: '', baseScale: sprite.scale.clone() });
+    }
+
+    _createDistanceLabelSprite() {
+        const ws = this.worldScale ?? 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+
+        const mat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            opacity: 0.95,
+            depthTest: false,
+            depthWrite: false
+        });
+        const sprite = new THREE.Sprite(mat);
+        // World-size for readability at current worldScale.
+        sprite.scale.set(70 * ws, 18 * ws, 1);
+
+        sprite.userData._label = { canvas, ctx, tex };
+        // Initialize with placeholder to avoid blank sprite flash.
+        this._setDistanceLabelText(sprite, '...');
+        return sprite;
+    }
+
+    _formatDistanceForLabel(distWorld) {
+        const ws = this.worldScale ?? 1;
+        const d = distWorld / ws; // keep numbers stable when voxel/world scale changes
+        if (d >= 1000) return `${(d / 1000).toFixed(1)}km`;
+        return `${Math.round(d)}m`;
+    }
+
+    _setDistanceLabelText(sprite, text) {
+        const info = sprite?.userData?._label;
+        if (!info) return;
+        const { ctx, canvas, tex } = info;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Backplate
+        ctx.fillStyle = 'rgba(7, 10, 18, 0.70)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Border
+        ctx.strokeStyle = 'rgba(180, 220, 255, 0.55)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+
+        // Text
+        ctx.font = 'bold 30px monospace';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(230, 245, 255, 0.98)';
+        ctx.fillText(text, 14, canvas.height / 2 + 1);
+
+        tex.needsUpdate = true;
     }
 
     updateBaseMarker(dtSec, nowSec) {
@@ -724,6 +814,17 @@ export class Game {
         this.spawner.spawnOnDestroyed(obj);
 
         if (obj.userData.entityId) {
+            if (this.currentTargetEntityId === obj.userData.entityId) {
+                this.currentTargetEntityId = null;
+                if (this.hud) {
+                    if (this.hud.crosshairUnlockAndSnapToCenter) this.hud.crosshairUnlockAndSnapToCenter();
+                    else {
+                        this.hud.crosshairSetLocked(false);
+                        this.hud.crosshairResetToCenter();
+                    }
+                }
+                this._lockSuppressUntilSec = (this._simTimeSec ?? 0) + 0.25;
+            }
             this.renderRegistry.unbind(obj.userData.entityId);
             this.world.removeEntity(obj.userData.entityId);
         }
@@ -737,6 +838,18 @@ export class Game {
      * @param {number} entityId
      */
     destroyObjectEntity(entityId) {
+        if (this.currentTargetEntityId === entityId) {
+            this.currentTargetEntityId = null;
+            if (this.hud) {
+                if (this.hud.crosshairUnlockAndSnapToCenter) this.hud.crosshairUnlockAndSnapToCenter();
+                else {
+                    this.hud.crosshairSetLocked(false);
+                    this.hud.crosshairResetToCenter();
+                }
+            }
+            this._lockSuppressUntilSec = (this._simTimeSec ?? 0) + 0.25;
+        }
+
         const obj = this.renderRegistry.get(entityId);
         if (!obj) {
             // Fallback: ensure sim state is cleared.

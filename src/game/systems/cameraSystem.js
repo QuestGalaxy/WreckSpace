@@ -34,7 +34,7 @@ export class CameraSystem {
     // Camera sits behind+above the ship. Keep it ship-relative so controls/aiming feel consistent.
     const ws = g.worldScale ?? 1;
     const camScale = Math.pow(ws, 0.75);
-    const distScale = 1.48;
+    const distScale = 1.75;
     const offsetZ = (g.keys['KeyZ'] ? -36 : -30) * camScale * distScale;
     const offsetY = (g.keys['KeyZ'] ? 20 : 22) * camScale;
 

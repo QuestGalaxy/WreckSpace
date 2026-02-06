@@ -58,17 +58,19 @@ export class LootSystem {
       const dy = playerT.y - t.y;
       const dz = playerT.z - t.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const magnetRange = 50 * ws;
+      // Make pickups feel generous: pull from farther and collect sooner.
+      const magnetRange = 90 * ws;
+      const collectRange = 12 * ws;
 
       if (dist < magnetRange && dist > 0.0001) {
         const inv = 1 / dist;
         const pullFactor = 1 - dist / magnetRange;
-        const magnetStrength = pullFactor * 2.0 * k;
+        const magnetStrength = pullFactor * 3.5 * k;
         t.x += dx * inv * magnetStrength;
         t.y += dy * inv * magnetStrength;
         t.z += dz * inv * magnetStrength;
 
-        if (dist < 10 * ws) {
+        if (dist < 18 * ws) {
           const shrink = Math.pow(0.9, k);
           t.sx *= shrink;
           t.sy *= shrink;
@@ -90,7 +92,7 @@ export class LootSystem {
         }
       }
 
-      if (dist < 5 * ws) {
+      if (dist < collectRange) {
         this.collectLootEntity(entityId, meta.value);
       }
     }

@@ -17,6 +17,7 @@ export class CombatSystem {
     this._playerPos = new THREE.Vector3();
     this._playerQuat = new THREE.Quaternion();
     this._noseWorld = new THREE.Vector3();
+    this._camSpace = new THREE.Vector3();
   }
 
   /**
@@ -24,12 +25,11 @@ export class CombatSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    void nowSec;
-    this.updateTargetLock();
+    this.updateTargetLock(nowSec);
     this.updateBullets(dtSec);
   }
 
-  updateTargetLock() {
+  updateTargetLock(nowSec) {
     const g = this.game;
     if (!g.playerEntityId || !g.camera) return;
     const pt = g.world.transform.get(g.playerEntityId);
@@ -37,12 +37,25 @@ export class CombatSystem {
     if (!pt || !prq) return;
 
     const ws = g.worldScale ?? 1;
+    if ((g._lockSuppressUntilSec ?? 0) > nowSec) {
+      g.currentTargetEntityId = null;
+      if (g.hud) {
+        if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
+        else {
+          g.hud.crosshairSetLocked(false);
+          g.hud.crosshairResetToCenter();
+        }
+      }
+      return;
+    }
+
     let bestTargetEntityId = null;
     let bestScore = Infinity;
     // Scale target-lock range with the world scaling so voxel size changes don't break locking.
     const maxDist = 500 * ws;
-    // Gate by cone, but bias toward larger targets so asteroids don't require pixel-perfect centering.
-    const cone = 0.45;
+    // Gate by cone and on-screen check.
+    const cone = 0.50;
+    const screenMargin = 0.98; // NDC margin (avoid picking barely off-screen targets)
 
     this._playerPos.set(pt.x, pt.y, pt.z);
     this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
@@ -59,10 +72,20 @@ export class CombatSystem {
       const angle = 1 - this._forward.dot(this._dirToObj); // 0 means perfectly aligned
       if (angle > cone) continue;
 
+      // Reject behind-camera / off-screen targets.
+      this._targetWorldPos.set(t.x, t.y, t.z);
+      this._camSpace.copy(this._targetWorldPos).applyMatrix4(g.camera.matrixWorldInverse);
+      if (this._camSpace.z > 0) continue; // behind the camera
+      this._targetPos.copy(this._targetWorldPos).project(g.camera);
+      if (this._targetPos.z < -1 || this._targetPos.z > 1) continue;
+      if (Math.abs(this._targetPos.x) > screenMargin || Math.abs(this._targetPos.y) > screenMargin) continue;
+
       const radius = t.sx ?? 1;
-      // Prefer closer + more centered targets, but give big objects a small assist.
-      const sizeAssist = Math.min(0.22, (radius / Math.max(1, dist)) * 0.22);
-      const score = angle - sizeAssist;
+      // Prefer on-screen center; add slight distance penalty; give big objects a small assist.
+      const centerDist = Math.hypot(this._targetPos.x, this._targetPos.y); // NDC 0..~1.4
+      const distPenalty = (dist / maxDist) * 0.25;
+      const sizeAssist = Math.min(0.25, (radius / Math.max(1, dist)) * 0.5) * 0.25;
+      const score = centerDist + distPenalty + angle * 0.35 - sizeAssist;
       if (score < bestScore) {
         bestScore = score;
         bestTargetEntityId = entityId;
@@ -75,7 +98,16 @@ export class CombatSystem {
     if (g.currentTargetEntityId) {
       g.hud.crosshairSetLocked(true);
       const t = g.world.transform.get(g.currentTargetEntityId);
-      if (!t) return;
+      if (!t) {
+        // Target was destroyed mid-frame (lock runs before bullet collisions).
+        g.currentTargetEntityId = null;
+        if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
+        else {
+          g.hud.crosshairSetLocked(false);
+          g.hud.crosshairResetToCenter();
+        }
+        return;
+      }
       this._targetWorldPos.set(t.x, t.y, t.z);
       this._targetPos.copy(this._targetWorldPos).project(g.camera);
       const x = (this._targetPos.x * 0.5 + 0.5) * window.innerWidth;

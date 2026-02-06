@@ -1,9 +1,14 @@
+import * as THREE from 'three';
+
 export class EnvironmentSystem {
   /**
    * @param {import('../../game.js').Game} game
    */
   constructor(game) {
     this.game = game;
+    this._labelAcc = 0;
+    this._tmpWorldPos = new THREE.Vector3();
+    this._playerPos = new THREE.Vector3();
   }
 
   /**
@@ -17,6 +22,7 @@ export class EnvironmentSystem {
     this.syncObjectsFromWorld();
     this.updateSpaceDust();
     this.updateRetroBackdrop();
+    this.updateDistanceLabels(dtSec);
   }
 
   updateObjectRotation(dtSec) {
@@ -136,6 +142,52 @@ export class EnvironmentSystem {
         else if (s.position.y > t.y + range) s.position.y -= range * 2;
         if (s.position.z < t.z - range) s.position.z += range * 2;
         else if (s.position.z > t.z + range) s.position.z -= range * 2;
+      }
+    }
+  }
+
+  updateDistanceLabels(dtSec) {
+    const g = this.game;
+    if (!g.distanceLabelTargets || g.distanceLabelTargets.length === 0) return;
+    if (!g.playerEntityId) return;
+
+    this._labelAcc += dtSec;
+    if (this._labelAcc < 0.1) return; // update labels at 10Hz
+    this._labelAcc = 0;
+
+    const pt = g.world.transform.get(g.playerEntityId);
+    if (!pt) return;
+    this._playerPos.set(pt.x, pt.y, pt.z);
+
+    // Prune dead targets (destroyed planets).
+    for (let i = g.distanceLabelTargets.length - 1; i >= 0; i--) {
+      const entry = g.distanceLabelTargets[i];
+      const target = entry.target;
+      if (!target || !target.parent) {
+        if (entry.sprite && g.scene) g.scene.remove(entry.sprite);
+        g.distanceLabelTargets.splice(i, 1);
+        continue;
+      }
+
+      target.getWorldPosition(this._tmpWorldPos);
+      const distWorld = this._tmpWorldPos.distanceTo(this._playerPos);
+      const distTxt = g._formatDistanceForLabel(distWorld);
+      const text = `${entry.prefix}  ${distTxt}`;
+      if (text !== entry.lastText) {
+        entry.lastText = text;
+        g._setDistanceLabelText(entry.sprite, text);
+      }
+
+      entry.sprite.position.copy(this._tmpWorldPos);
+      entry.sprite.position.y += entry.yOffset;
+
+      // Make far-away labels readable by scaling them up with distance (clamped).
+      // Sprites are world-sized; without this, planet labels become tiny at large distances.
+      const ws = g.worldScale ?? 1;
+      const near = 600 * ws;
+      const mul = THREE.MathUtils.clamp(distWorld / near, 1, 6);
+      if (entry.baseScale) {
+        entry.sprite.scale.set(entry.baseScale.x * mul, entry.baseScale.y * mul, entry.baseScale.z);
       }
     }
   }

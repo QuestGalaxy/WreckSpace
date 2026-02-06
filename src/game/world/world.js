@@ -34,6 +34,12 @@ export class World {
      * @type {Map<number, { rotationSpeed: { x: number, y: number, z: number }, driftOffset: number, floatBaseY: number }>}
      */
     this.lootMotion = new Map();
+
+    /**
+     * Generic spin / angular velocity (used by asteroids/planets first).
+     * @type {Map<number, { x: number, y: number, z: number }>}
+     */
+    this.spin = new Map();
   }
 
   /** @returns {number} */
@@ -75,6 +81,7 @@ export class World {
     this.transform.delete(entityId);
     this.velocity.delete(entityId);
     this.lootMotion.delete(entityId);
+    this.spin.delete(entityId);
   }
 
   /**

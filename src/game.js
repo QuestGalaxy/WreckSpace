@@ -73,6 +73,9 @@ export class Game {
         this.environment = new EnvironmentSystem(this);
         this.vfx = new VfxSystem(this);
         this.spawner = new SpawnSystem(this);
+
+        /** @type {number|null} */
+        this.currentTargetEntityId = null;
     }
 
     init() {
@@ -456,11 +459,28 @@ export class Game {
                     z: (Math.random() - 0.5) * 0.01
                 }
             };
-            asteroid.userData.entityId = this.world.createObject({
+            const entityId = this.world.createObject({
                 type: 'asteroid',
                 hp: scale * 5,
                 maxHp: scale * 5,
                 lootValue: Math.floor(scale * 5)
+            });
+            this.renderRegistry.bind(entityId, asteroid);
+            this.world.transform.set(entityId, {
+                x: asteroid.position.x,
+                y: asteroid.position.y,
+                z: asteroid.position.z,
+                rx: asteroid.rotation.x,
+                ry: asteroid.rotation.y,
+                rz: asteroid.rotation.z,
+                sx: asteroid.scale.x,
+                sy: asteroid.scale.y,
+                sz: asteroid.scale.z
+            });
+            this.world.spin.set(entityId, {
+                x: asteroid.userData.rotationSpeed.x,
+                y: asteroid.userData.rotationSpeed.y,
+                z: asteroid.userData.rotationSpeed.z
             });
             
             // Add Health Bar (Initially hidden)
@@ -496,12 +516,25 @@ export class Game {
             planet.userData = {
                 type: 'planet',
             };
-            planet.userData.entityId = this.world.createObject({
+            const planetEntityId = this.world.createObject({
                 type: 'planet',
                 hp: 500,
                 maxHp: 500,
                 lootValue: 1000
             });
+            this.renderRegistry.bind(planetEntityId, planet);
+            this.world.transform.set(planetEntityId, {
+                x: planet.position.x,
+                y: planet.position.y,
+                z: planet.position.z,
+                rx: planet.rotation.x,
+                ry: planet.rotation.y,
+                rz: planet.rotation.z,
+                sx: planet.scale.x,
+                sy: planet.scale.y,
+                sz: planet.scale.z
+            });
+            this.world.spin.set(planetEntityId, { x: 0, y: 0.001, z: 0 });
             
             // Add Health Bar (Initially hidden)
             this.createHealthBar(planet);
@@ -536,12 +569,16 @@ export class Game {
         this._simTimeSec += dtSec;
         const now = this._simTimeSec;
 
-        // Order matters: movement rotates ship, camera follows updated transform,
-        // combat uses updated orientation for targeting, navigation uses updated camera.
+        // Order matters:
+        // 1) movement updates player transform
+        // 2) environment updates + syncs world objects (so combat reads fresh world transforms)
+        // 3) camera follows player
+        // 4) combat uses player+world transforms
+        // 5) navigation uses camera
         this.movement.update(dtSec, now);
+        this.environment.update(dtSec, now);
         this.cameraSystem.update(dtSec, now);
         this.combat.update(dtSec, now);
-        this.environment.update(dtSec, now);
         this.updateBaseMarker(dtSec, now);
 
         this.vfx.update(dtSec, now);
@@ -559,10 +596,40 @@ export class Game {
         this.vfx.createExplosion(obj.position, obj.scale.x, obj.userData.type);
         this.spawner.spawnOnDestroyed(obj);
 
-        if (obj.userData.entityId) this.world.removeEntity(obj.userData.entityId);
+        if (obj.userData.entityId) {
+            this.renderRegistry.unbind(obj.userData.entityId);
+            this.world.removeEntity(obj.userData.entityId);
+        }
         this.scene.remove(obj);
         this.objects.splice(index, 1);
         this.showMessage(`Exploded ${obj.userData.type.toUpperCase()}!`);
+    }
+
+    /**
+     * World-first destroy entrypoint. Prefer this over passing array indices around.
+     * @param {number} entityId
+     */
+    destroyObjectEntity(entityId) {
+        const obj = this.renderRegistry.get(entityId);
+        if (!obj) {
+            // Fallback: ensure sim state is cleared.
+            this.renderRegistry.unbind(entityId);
+            this.world.removeEntity(entityId);
+            return;
+        }
+
+        const idx = this.objects.indexOf(obj);
+        if (idx >= 0) {
+            this.destroyObject(obj, idx);
+            return;
+        }
+
+        // Not found in list; still clean up safely.
+        this.vfx.createExplosion(obj.position, obj.scale.x, obj.userData.type);
+        this.spawner.spawnOnDestroyed(obj);
+        this.renderRegistry.unbind(entityId);
+        this.world.removeEntity(entityId);
+        this.scene.remove(obj);
     }
 
     createHealthBar(object) {

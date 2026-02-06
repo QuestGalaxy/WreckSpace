@@ -11,23 +11,34 @@ export class EnvironmentSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    void dtSec;
     void nowSec;
     const g = this.game;
-    this.updateObjectRotation();
+    this.updateObjectRotation(dtSec);
+    this.syncObjectsFromWorld();
     this.updateSpaceDust();
   }
 
-  updateObjectRotation() {
+  updateObjectRotation(dtSec) {
     const g = this.game;
-    for (const obj of g.objects) {
-      if (obj.userData.rotationSpeed) {
-        obj.rotation.x += obj.userData.rotationSpeed.x;
-        obj.rotation.y += obj.userData.rotationSpeed.y;
-        obj.rotation.z += obj.userData.rotationSpeed.z;
-      } else if (obj.userData.type === 'planet') {
-        obj.rotation.y += 0.001;
-      }
+    const k = dtSec * 60;
+    for (const [entityId, spin] of g.world.spin) {
+      const t = g.world.transform.get(entityId);
+      if (!t) continue;
+      t.rx += spin.x * k;
+      t.ry += spin.y * k;
+      t.rz += spin.z * k;
+    }
+  }
+
+  syncObjectsFromWorld() {
+    const g = this.game;
+    for (const [entityId] of g.world.objectMeta) {
+      const obj = g.renderRegistry.get(entityId);
+      const t = g.world.transform.get(entityId);
+      if (!obj || !t) continue;
+      obj.position.set(t.x, t.y, t.z);
+      obj.rotation.set(t.rx, t.ry, t.rz);
+      obj.scale.set(t.sx, t.sy, t.sz);
     }
   }
 
@@ -68,4 +79,3 @@ export class EnvironmentSystem {
     if (needsUpdate) g.spaceDustPoints.geometry.attributes.position.needsUpdate = true;
   }
 }
-

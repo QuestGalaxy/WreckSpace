@@ -11,6 +11,7 @@ export class CombatSystem {
     this._forward = new THREE.Vector3();
     this._dirToObj = new THREE.Vector3();
     this._targetPos = new THREE.Vector3();
+    this._targetWorldPos = new THREE.Vector3();
     this._bulletPos = new THREE.Vector3();
     this._noseOffset = new THREE.Vector3(0, 0, 2);
   }
@@ -29,15 +30,17 @@ export class CombatSystem {
     const g = this.game;
     if (!g.player || !g.camera) return;
 
-    let bestTarget = null;
+    let bestTargetEntityId = null;
     let bestAngle = 0.25; // Slightly wider cone
     const maxDist = 500; // Increased range
 
     this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion).normalize();
     const playerPos = g.player.position;
 
-    for (const obj of g.objects) {
-      this._dirToObj.subVectors(obj.position, playerPos);
+    for (const [entityId] of g.world.objectMeta) {
+      const t = g.world.transform.get(entityId);
+      if (!t) continue;
+      this._dirToObj.set(t.x - playerPos.x, t.y - playerPos.y, t.z - playerPos.z);
       const dist = this._dirToObj.length();
       if (dist > maxDist) continue;
 
@@ -45,16 +48,21 @@ export class CombatSystem {
       const angle = 1 - this._forward.dot(this._dirToObj); // 0 means perfectly aligned
       if (angle < bestAngle) {
         bestAngle = angle;
-        bestTarget = obj;
+        bestTargetEntityId = entityId;
       }
     }
 
-    g.currentTarget = bestTarget;
+    g.currentTargetEntityId = bestTargetEntityId;
+    // Keep the old field for any transitional code.
+    g.currentTarget = bestTargetEntityId ? g.renderRegistry.get(bestTargetEntityId) : null;
 
     if (!g.hud) return;
-    if (g.currentTarget) {
+    if (g.currentTargetEntityId) {
       g.hud.crosshairSetLocked(true);
-      this._targetPos.copy(g.currentTarget.position).project(g.camera);
+      const t = g.world.transform.get(g.currentTargetEntityId);
+      if (!t) return;
+      this._targetWorldPos.set(t.x, t.y, t.z);
+      this._targetPos.copy(this._targetWorldPos).project(g.camera);
       const x = (this._targetPos.x * 0.5 + 0.5) * window.innerWidth;
       const y = (this._targetPos.y * -0.5 + 0.5) * window.innerHeight;
       g.hud.crosshairSetScreenPos(x, y);
@@ -104,9 +112,16 @@ export class CombatSystem {
 
     // Direction and rotation
     let forward;
-    if (g.currentTarget) {
-      forward = this._dirToObj.subVectors(g.currentTarget.position, this._bulletPos).normalize();
-      bullet.lookAt(g.currentTarget.position);
+    if (g.currentTargetEntityId) {
+      const t = g.world.transform.get(g.currentTargetEntityId);
+      if (t) {
+        this._targetWorldPos.set(t.x, t.y, t.z);
+        forward = this._dirToObj.subVectors(this._targetWorldPos, this._bulletPos).normalize();
+        bullet.lookAt(this._targetWorldPos);
+      } else {
+        forward = this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion);
+        bullet.quaternion.copy(g.player.quaternion);
+      }
     } else {
       forward = this._forward.set(0, 0, 1).applyQuaternion(g.player.quaternion);
       bullet.quaternion.copy(g.player.quaternion);
@@ -156,10 +171,25 @@ export class CombatSystem {
         continue;
       }
 
-      // Collision with objects
-      for (let j = g.objects.length - 1; j >= 0; j--) {
-        const obj = g.objects[j];
-        if (b.position.distanceTo(obj.position) < obj.scale.x) {
+      // Collision with objects (world-first)
+      const bx = b.position.x;
+      const by = b.position.y;
+      const bz = b.position.z;
+      let hit = false;
+
+      for (const [entityId] of g.world.objectMeta) {
+        const t = g.world.transform.get(entityId);
+        if (!t) continue;
+        const dx = bx - t.x;
+        const dy = by - t.y;
+        const dz = bz - t.z;
+        const dist2 = dx * dx + dy * dy + dz * dz;
+        const radius = t.sx; // objects are uniformly scaled
+        if (dist2 > radius * radius) continue;
+
+        const obj = g.renderRegistry.get(entityId);
+        if (!obj) continue;
+
           // Subtle hit flash
           if (obj.material) {
             const originalIntensity = obj.userData.type === 'planet' ? 0.1 : 0;
@@ -178,8 +208,7 @@ export class CombatSystem {
 
           g.vfx.createHitEffect(b.position);
           g.soundManager.playHit();
-          const entityId = obj.userData.entityId;
-          const h = entityId ? g.world.damage(entityId, g.shipData.weaponPower) : null;
+          const h = g.world.damage(entityId, g.shipData.weaponPower);
 
           // Show and update health bar
           if (obj.userData.healthBar) {
@@ -199,11 +228,13 @@ export class CombatSystem {
           g.bullets.splice(i, 1);
 
           if (h && h.hp <= 0) {
-            g.destroyObject(obj, j);
+            g.destroyObjectEntity(entityId);
           }
+          hit = true;
           break;
-        }
       }
+
+      if (hit) continue;
     }
   }
 }

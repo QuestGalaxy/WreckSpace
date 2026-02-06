@@ -49,17 +49,73 @@ export class CombatSystem {
       return;
     }
 
-    let bestTargetEntityId = null;
-    let bestScore = Infinity;
     // Scale target-lock range with the world scaling so voxel size changes don't break locking.
     const maxDist = 500 * ws;
-    // Gate by cone and on-screen check.
-    const cone = 0.50;
     const screenMargin = 0.98; // NDC margin (avoid picking barely off-screen targets)
+
+    // Sticky lock behavior:
+    // - If we already have a target, keep it while it's reasonably near-center.
+    // - If the player turns away (target drifts away from center), unlock.
+    const keepCenterMax = 0.85;
+    const acquireCenterMax = 0.60;
 
     this._playerPos.set(pt.x, pt.y, pt.z);
     this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
     this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat).normalize();
+
+    const isOnScreen = (t) => {
+      this._targetWorldPos.set(t.x, t.y, t.z);
+      this._camSpace.copy(this._targetWorldPos).applyMatrix4(g.camera.matrixWorldInverse);
+      if (this._camSpace.z > 0) return false; // behind the camera
+      this._targetPos.copy(this._targetWorldPos).project(g.camera);
+      if (this._targetPos.z < -1 || this._targetPos.z > 1) return false;
+      if (Math.abs(this._targetPos.x) > screenMargin || Math.abs(this._targetPos.y) > screenMargin) return false;
+      return true;
+    };
+
+    const unlock = () => {
+      g.currentTargetEntityId = null;
+      g._lockSuppressUntilSec = nowSec + 0.15;
+      if (!g.hud) return;
+      if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
+      else {
+        g.hud.crosshairSetLocked(false);
+        g.hud.crosshairResetToCenter();
+      }
+    };
+
+    // 1) Keep existing target if still valid and near-center.
+    if (g.currentTargetEntityId) {
+      const t = g.world.transform.get(g.currentTargetEntityId);
+      if (!t) {
+        unlock();
+        return;
+      }
+      if (!isOnScreen(t)) {
+        unlock();
+        return;
+      }
+      const centerDist = Math.hypot(this._targetPos.x, this._targetPos.y);
+      if (centerDist > keepCenterMax) {
+        unlock();
+        return;
+      }
+
+      // Still locked: update HUD position.
+      if (g.hud) {
+        g.hud.crosshairSetLocked(true);
+        const x = (this._targetPos.x * 0.5 + 0.5) * window.innerWidth;
+        const y = (this._targetPos.y * -0.5 + 0.5) * window.innerHeight;
+        g.hud.crosshairSetScreenPos(x, y);
+        g.hud.crosshairSetLockedTransform();
+      }
+      return;
+    }
+
+    // 2) Acquire new target (on-screen, near center).
+    let bestTargetEntityId = null;
+    let bestScore = Infinity;
+    const cone = 0.55;
 
     for (const [entityId] of g.world.objectMeta) {
       const t = g.world.transform.get(entityId);
@@ -72,17 +128,13 @@ export class CombatSystem {
       const angle = 1 - this._forward.dot(this._dirToObj); // 0 means perfectly aligned
       if (angle > cone) continue;
 
-      // Reject behind-camera / off-screen targets.
-      this._targetWorldPos.set(t.x, t.y, t.z);
-      this._camSpace.copy(this._targetWorldPos).applyMatrix4(g.camera.matrixWorldInverse);
-      if (this._camSpace.z > 0) continue; // behind the camera
-      this._targetPos.copy(this._targetWorldPos).project(g.camera);
-      if (this._targetPos.z < -1 || this._targetPos.z > 1) continue;
-      if (Math.abs(this._targetPos.x) > screenMargin || Math.abs(this._targetPos.y) > screenMargin) continue;
+      if (!isOnScreen(t)) continue;
 
       const radius = t.sx ?? 1;
-      // Prefer on-screen center; add slight distance penalty; give big objects a small assist.
       const centerDist = Math.hypot(this._targetPos.x, this._targetPos.y); // NDC 0..~1.4
+      if (centerDist > acquireCenterMax) continue;
+
+      // Prefer on-screen center; add slight distance penalty; give big objects a small assist.
       const distPenalty = (dist / maxDist) * 0.25;
       const sizeAssist = Math.min(0.25, (radius / Math.max(1, dist)) * 0.5) * 0.25;
       const score = centerDist + distPenalty + angle * 0.35 - sizeAssist;
@@ -100,12 +152,7 @@ export class CombatSystem {
       const t = g.world.transform.get(g.currentTargetEntityId);
       if (!t) {
         // Target was destroyed mid-frame (lock runs before bullet collisions).
-        g.currentTargetEntityId = null;
-        if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
-        else {
-          g.hud.crosshairSetLocked(false);
-          g.hud.crosshairResetToCenter();
-        }
+        unlock();
         return;
       }
       this._targetWorldPos.set(t.x, t.y, t.z);
@@ -234,6 +281,8 @@ export class CombatSystem {
     const g = this.game;
     if (!g.scene) return;
     const k = dtSec * 60;
+    const lockedId = g.currentTargetEntityId ?? null;
+    const lockedType = lockedId ? (g.world.objectMeta.get(lockedId)?.type ?? null) : null;
 
     for (let i = g.bullets.length - 1; i >= 0; i--) {
       const b = g.bullets[i];
@@ -252,18 +301,19 @@ export class CombatSystem {
       const bz = b.position.z;
       let hit = false;
 
-      for (const [entityId] of g.world.objectMeta) {
+      // If we're locked on a planet, ignore occluders so shots reliably reach it.
+      const checkEntity = (entityId) => {
         const t = g.world.transform.get(entityId);
-        if (!t) continue;
+        if (!t) return false;
         const dx = bx - t.x;
         const dy = by - t.y;
         const dz = bz - t.z;
         const dist2 = dx * dx + dy * dy + dz * dz;
         const radius = t.sx; // objects are uniformly scaled
-        if (dist2 > radius * radius) continue;
+        if (dist2 > radius * radius) return false;
 
         const obj = g.renderRegistry.get(entityId);
-        if (!obj) continue;
+        if (!obj) return false;
 
           // Subtle hit flash
           if (obj.material) {
@@ -284,6 +334,11 @@ export class CombatSystem {
           g.vfx.createHitEffect(b.position);
           g.soundManager.playHit();
           const h = g.world.damage(entityId, g.shipData.weaponPower);
+
+          // Sticky lock: if you hit a planet, lock it; turning away will release.
+          if (obj.userData?.type === 'planet') {
+            g.currentTargetEntityId = entityId;
+          }
 
           // Show and update health bar
           if (obj.userData.healthBar) {
@@ -306,7 +361,18 @@ export class CombatSystem {
             g.destroyObjectEntity(entityId);
           }
           hit = true;
-          break;
+          return true;
+      };
+
+      if (lockedId && lockedType === 'planet') {
+        hit = checkEntity(lockedId);
+      } else {
+        for (const [entityId] of g.world.objectMeta) {
+          if (checkEntity(entityId)) {
+            hit = true;
+            break;
+          }
+        }
       }
 
       if (hit) continue;

@@ -158,6 +158,41 @@ export class EnvironmentSystem {
         else if (s.position.z > t.z + range) s.position.z -= range * 2;
       }
     }
+
+    // Sparkle sprites: keep them clustered around player for readability.
+    if (g.retroSparkles) {
+      for (const s of g.retroSparkles) {
+        const range = s.userData?.range ?? 1700;
+        if (s.position.x < t.x - range) s.position.x += range * 2;
+        else if (s.position.x > t.x + range) s.position.x -= range * 2;
+        if (s.position.y < t.y - range) s.position.y += range * 2;
+        else if (s.position.y > t.y + range) s.position.y -= range * 2;
+        if (s.position.z < t.z - range) s.position.z += range * 2;
+        else if (s.position.z > t.z + range) s.position.z -= range * 2;
+      }
+    }
+
+    // Neon streaks: drift forward, wrap around player, and billboard to camera.
+    if (g.retroStreaks) {
+      for (const m of g.retroStreaks) {
+        const range = m.userData?.range ?? 2400;
+        const drift = m.userData?.drift ?? 0.9;
+        m.position.z += drift;
+
+        if (m.position.x < t.x - range) m.position.x += range * 2;
+        else if (m.position.x > t.x + range) m.position.x -= range * 2;
+        if (m.position.y < t.y - range) m.position.y += range * 2;
+        else if (m.position.y > t.y + range) m.position.y -= range * 2;
+        if (m.position.z < t.z - range) m.position.z += range * 2;
+        else if (m.position.z > t.z + range) m.position.z -= range * 2;
+
+        if (g.camera) {
+          m.quaternion.copy(g.camera.quaternion);
+          const roll = m.userData?.roll ?? 0;
+          if (roll) m.rotateZ(roll);
+        }
+      }
+    }
   }
 
   updateDistanceLabels(dtSec) {

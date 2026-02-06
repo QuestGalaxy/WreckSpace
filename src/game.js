@@ -150,13 +150,39 @@ export class Game {
 
         // Single theme/palette for now; later this can be per-world.
         this.theme = {
-            // Slightly lifted, more saturated deep-space so silhouettes read.
-            sky: 0x101a3a,
-            fog: 0x0b1533,
-            // Brighter rock range; face shading will still add depth.
-            asteroidPalette: [0x7c86a3, 0x8a7a84, 0x6b8f92, 0x8b8a6c],
-            station: { hull: 0xa6adb8, dark: 0x1b1f2a, light: 0x66ccff },
-            ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0x66ccff }
+            // Pastel-neon voxel arcade space: readability + chaos over realism.
+            // Background is deep purple (not black), so silhouettes and glows pop.
+            sky: 0x1a0b3d,
+            fog: 0x0f0824,
+            // Candy-voxel rocks (we still rely on face shading for form).
+            asteroidPalette: [
+                0x9b5cff, // violet
+                0xff6ec7, // hot pastel pink
+                0x35e6ff, // candy cyan
+                0xffb703, // mango
+                0xff6b3d, // neon orange
+                0x2dffb5  // mint
+            ],
+            planetPalette: [
+                0xff4fd8, // magenta
+                0x4df3ff, // bright cyan
+                0xa78bfa, // lavender
+                0x7dff7a, // lime
+                0xffc14d  // peach
+            ],
+            vfx: {
+                laser: 0x35e6ff,
+                laserCore: 0xffffff,
+                engine: 0x2dffb5,
+                engineBoost: 0x35e6ff,
+                shockwave: 0xffc14d
+            },
+            loot: {
+                gem: { color: 0x4df3ff, glowCss: '#4df3ff' },
+                coin: { color: 0xffd24a, glowCss: '#ffb703', emissive: 0xff7a18 }
+            },
+            station: { hull: 0xb9c0d0, dark: 0x2b2450, light: 0x35e6ff },
+            ship: { dark: 0x2b2450, accent: 0xff6ec7, glass: 0x0b1222, thruster: 0x35e6ff }
         };
     }
 
@@ -183,16 +209,16 @@ export class Game {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         // Lift mids a bit; helps voxel readability without cranking lights.
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.28;
+        this.renderer.toneMappingExposure = 1.38;
 
         // Post-processing
         const renderScene = new RenderPass(this.scene, this.camera);
         
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.75, // strength
-            0.18, // radius
-            0.35  // threshold (mostly glows)
+            1.05, // strength (neon arcade)
+            0.22, // radius
+            0.28  // threshold (let loot/asteroids pop)
         );
         
         this.composer = new EffectComposer(this.renderer);
@@ -202,25 +228,25 @@ export class Game {
         // Lighting
         // Minecraft-ish: simple ambient + key + faint rim.
         // Ambient is intentionally a bit high; Minecraft-like face shading provides the depth.
-        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.25);
+        const ambientLight = new THREE.AmbientLight(0xcab4ff, 1.20);
         this.scene.add(ambientLight);
 
         // Soft "sky vs void" fill improves depth cues (tops read lighter than undersides).
-        const hemi = new THREE.HemisphereLight(0xd6ecff, 0x080518, 0.75);
+        const hemi = new THREE.HemisphereLight(0xf1f6ff, 0x17022d, 0.78);
         this.scene.add(hemi);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        const sunLight = new THREE.DirectionalLight(0xfff2dd, 1.15);
         sunLight.position.set(120, 160, 90);
         this.scene.add(sunLight);
 
-        const rim = new THREE.DirectionalLight(0x66ccff, 0.35);
+        const rim = new THREE.DirectionalLight(0x35e6ff, 0.45);
         rim.position.set(-120, 20, -180);
         this.scene.add(rim);
 
         // Camera fill light: prevents "pitch black" faces when the main key is behind.
         // Attach to camera so it always helps what's on screen without flattening everything.
         this.scene.add(this.camera);
-        const camFill = new THREE.PointLight(0x9fd9ff, 0.55, 900 * this.worldScale, 2);
+        const camFill = new THREE.PointLight(0xb7d7ff, 0.55, 900 * this.worldScale, 2);
         camFill.position.set(0, 0, 0);
         this.camera.add(camFill);
 
@@ -273,10 +299,10 @@ export class Game {
         dustGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
         
         const dustMat = new THREE.PointsMaterial({
-            color: 0xbfe6ff,
-            size: 1.1,
+            color: 0xb7d7ff,
+            size: 1.35,
             transparent: true,
-            opacity: 0.65,
+            opacity: 0.62,
             sizeAttenuation: true
         });
         
@@ -311,14 +337,14 @@ export class Game {
 
         const ws = this.worldScale;
         this.retroBackdropLayers = [
-            mkLayer({ count: 850, range: 550 * ws, size: 3.2, color: 0xe7f1ff, opacity: 0.95, drift: 0.24 }),
-            mkLayer({ count: 520, range: 850 * ws, size: 3.8, color: 0xbfe0ff, opacity: 0.85, drift: 0.16 }),
-            mkLayer({ count: 260, range: 1200 * ws, size: 4.5, color: 0xffd7b2, opacity: 0.78, drift: 0.09 })
+            mkLayer({ count: 880, range: 560 * ws, size: 3.3, color: 0xfff6ff, opacity: 0.94, drift: 0.26 }),
+            mkLayer({ count: 560, range: 880 * ws, size: 3.9, color: 0x8cf0ff, opacity: 0.82, drift: 0.17 }),
+            mkLayer({ count: 300, range: 1260 * ws, size: 4.6, color: 0xffc1f4, opacity: 0.74, drift: 0.10 })
         ];
 
         // Big pixel nebula sprites (chunky and low-detail on purpose)
         const nebTex = this._createPixelNebulaTexture(128);
-        const colors = [0x6c2bd9, 0x2b77ff, 0xff2b75, 0x2bffcc];
+        const colors = [0x7c2cff, 0x2b77ff, 0xff2b9a, 0x2dffb5, 0xffb703];
         this.retroNebulaSprites = [];
         for (let i = 0; i < 12; i++) {
             const c = colors[i % colors.length];
@@ -326,7 +352,7 @@ export class Game {
                 map: nebTex,
                 color: c,
                 transparent: true,
-                opacity: 0.22,
+                opacity: 0.24,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -342,6 +368,67 @@ export class Game {
             s.userData = { range: 2200 * ws };
             this.scene.add(s);
             this.retroNebulaSprites.push(s);
+        }
+
+        // Sparkle stars: chunky bright sprites that read over the nebula.
+        const sparkleTex = this._createSparkleTexture(64);
+        const sparkleColors = [0xfff6ff, 0x8cf0ff, 0xffc1f4, 0xffe1a8, 0xcab4ff];
+        this.retroSparkles = [];
+        for (let i = 0; i < 90; i++) {
+            const c = sparkleColors[i % sparkleColors.length];
+            const mat = new THREE.SpriteMaterial({
+                map: sparkleTex,
+                color: c,
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const s = new THREE.Sprite(mat);
+            const scale = (18 + Math.random() * 26) * ws;
+            s.scale.set(scale, scale, 1);
+            s.position.set(
+                (Math.random() - 0.5) * 2600 * ws,
+                (Math.random() - 0.5) * 2600 * ws,
+                (Math.random() - 0.5) * 2600 * ws
+            );
+            s.material.rotation = Math.random() * Math.PI * 2;
+            s.userData = { range: 1700 * ws };
+            this.scene.add(s);
+            this.retroSparkles.push(s);
+        }
+
+        // Neon streaks/rays: long additive ribbons that sell the arcade chaos.
+        const streakTex = this._createStreakTexture(256, 32);
+        const streakColors = [0xff6ec7, 0x35e6ff, 0xffb703, 0xa78bfa, 0x2dffb5];
+        const streakGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
+        this.retroStreaks = [];
+        for (let i = 0; i < 80; i++) {
+            const c = streakColors[i % streakColors.length];
+            const mat = new THREE.MeshBasicMaterial({
+                map: streakTex,
+                color: c,
+                transparent: true,
+                opacity: 0.22,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            });
+            const m = new THREE.Mesh(streakGeo, mat);
+            const len = (220 + Math.random() * 920) * ws;
+            const wid = (10 + Math.random() * 26) * ws;
+            m.scale.set(len, wid, 1);
+            m.position.set(
+                (Math.random() - 0.5) * 4200 * ws,
+                (Math.random() - 0.5) * 4200 * ws,
+                (Math.random() - 0.5) * 4200 * ws
+            );
+            const roll = Math.random() * Math.PI * 2;
+            // Billboarding is applied in EnvironmentSystem so streaks stay readable.
+            m.rotation.set(0, 0, roll);
+            m.userData = { range: 2400 * ws, drift: 0.55 + Math.random() * 0.55, roll };
+            this.scene.add(m);
+            this.retroStreaks.push(m);
         }
     }
 
@@ -377,6 +464,77 @@ export class Game {
         return tex;
     }
 
+    _createSparkleTexture(size) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+
+        // Chunky 4-point star, voxel-ish.
+        const c = size * 0.5;
+        const w = Math.max(2, Math.floor(size * 0.08));
+        const arm = Math.floor(size * 0.35);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.fillRect(c - w * 0.5, c - arm, w, arm * 2);
+        ctx.fillRect(c - arm, c - w * 0.5, arm * 2, w);
+
+        // Soft core bloom (kept subtle; main glow comes from post/bloom).
+        const g = ctx.createRadialGradient(c, c, 0, c, c, size * 0.5);
+        g.addColorStop(0, 'rgba(255,255,255,0.65)');
+        g.addColorStop(0.25, 'rgba(255,255,255,0.20)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    _createStreakTexture(w, h) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, w, h);
+
+        // A bright center line with falloff; color is applied via material tint.
+        const g = ctx.createLinearGradient(0, h * 0.5, 0, h);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.35, 'rgba(255,255,255,0.15)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.75)');
+        g.addColorStop(0.65, 'rgba(255,255,255,0.15)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+
+        // Fade ends to avoid hard rectangles.
+        const g2 = ctx.createLinearGradient(0, 0, w, 0);
+        g2.addColorStop(0, 'rgba(0,0,0,0)');
+        g2.addColorStop(0.15, 'rgba(255,255,255,1)');
+        g2.addColorStop(0.85, 'rgba(255,255,255,1)');
+        g2.addColorStop(1, 'rgba(0,0,0,0)');
+
+        // Multiply-like mask by drawing destination-in.
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.fillStyle = g2;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'source-over';
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        return tex;
+    }
+
     _createSpaceBackgroundTexture(size = 512) {
         const canvas = document.createElement('canvas');
         canvas.width = size;
@@ -385,9 +543,9 @@ export class Game {
 
         // Gradient base (slightly brighter center to give depth).
         const g = ctx.createRadialGradient(size * 0.52, size * 0.45, size * 0.05, size * 0.5, size * 0.5, size * 0.75);
-        g.addColorStop(0, '#243a7a');
-        g.addColorStop(0.45, '#101a3a');
-        g.addColorStop(1, '#050714');
+        g.addColorStop(0, '#43228f');
+        g.addColorStop(0.35, '#1a0b3d');
+        g.addColorStop(1, '#05010d');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
 
@@ -403,7 +561,7 @@ export class Game {
         ctx.putImageData(img, 0, 0);
 
         // Few large faint stars (background only).
-        ctx.fillStyle = 'rgba(230,245,255,0.10)';
+        ctx.fillStyle = 'rgba(255,245,255,0.10)';
         for (let i = 0; i < 140; i++) {
             const x = Math.random() * size;
             const y = Math.random() * size;
@@ -471,7 +629,7 @@ export class Game {
         });
         
         // Add a glow or some indicator
-        const light = new THREE.PointLight(0x00ffff, 65, 90 * this.worldScale);
+        const light = new THREE.PointLight(this.theme.station.light, 65, 90 * this.worldScale);
         light.position.copy(this.baseStation.position);
         this.scene.add(light);
     }
@@ -588,9 +746,12 @@ export class Game {
             const material = this._voxLit({
                 color: asteroidColor,
                 map: this._voxelTextures.rock,
-                emissive: 0x0b1633,
-                emissiveIntensity: 0.10
+                // Arcade glow: push emissive a bit so bloom can catch edges.
+                emissive: 0x2b0f55,
+                emissiveIntensity: 0.18
             });
+            // Slight per-asteroid variance keeps the field from looking uniformly lit.
+            material.emissiveIntensity = 0.14 + Math.random() * 0.18;
 
             const asteroid = new THREE.Mesh(variant.geo, material);
             const scale = (1.2 + Math.random() * 7.5) * this.worldScale;
@@ -667,6 +828,24 @@ export class Game {
             
             // Add Health Bar (Initially hidden)
             this.createHealthBar(asteroid);
+
+            // Occasional candy glow "hotspots" (reads like voxel cores).
+            if (this.vfx && Math.random() < 0.28) {
+                const glow = new THREE.Sprite(
+                    new THREE.SpriteMaterial({
+                        map: this.vfx.createGlowTexture('#ffffff'),
+                        color: Math.random() < 0.55 ? 0xffb703 : 0xff6ec7,
+                        transparent: true,
+                        opacity: 0.22,
+                        blending: THREE.AdditiveBlending,
+                        depthWrite: false
+                    })
+                );
+                const s = scale * (1.3 + Math.random() * 0.9);
+                glow.scale.set(s, s, 1);
+                glow.material.rotation = Math.random() * Math.PI * 2;
+                asteroid.add(glow);
+            }
             
             this.scene.add(asteroid);
             this.objects.push(asteroid);
@@ -690,7 +869,7 @@ export class Game {
             }
         }
 
-        const planetColors = [0xff7733, 0x3366ff, 0x44aa44, 0xaa44ff];
+        const planetColors = this.theme.planetPalette ?? [0xff4fd8, 0x4df3ff, 0xa78bfa, 0x7dff7a, 0xffc14d];
         
         for (let i = 0; i < 8; i++) {
             const color = planetColors[i % planetColors.length];
@@ -770,7 +949,7 @@ export class Game {
                     map: this.vfx.createGlowTexture('#ffffff'),
                     color,
                     transparent: true,
-                    opacity: 0.18,
+                    opacity: 0.24,
                     blending: THREE.AdditiveBlending,
                     depthWrite: false
                 })

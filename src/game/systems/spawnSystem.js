@@ -548,12 +548,14 @@ export class SpawnSystem {
 
   _acquireGemLoot() {
     const g = this.game;
+    const c = g.theme?.loot?.gem?.color ?? 0x4df3ff;
+    const glowCss = g.theme?.loot?.gem?.glowCss ?? '#4df3ff';
     const loot = this._gemLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
       loot.scale.setScalar(2.0);
-      loot.material.color.setHex(0x00ffff);
-      loot.material.emissive.setHex(0x00ffff);
+      loot.material.color.setHex(c);
+      loot.material.emissive.setHex(c);
       loot.material.emissiveIntensity = 1.5;
       loot.material.metalness = 0.9;
       loot.material.roughness = 0.0;
@@ -561,8 +563,8 @@ export class SpawnSystem {
     }
 
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      emissive: 0x00ffff,
+      color: c,
+      emissive: c,
       emissiveIntensity: 1.5,
       metalness: 0.9,
       roughness: 0.0
@@ -572,8 +574,8 @@ export class SpawnSystem {
 
     const glow = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: g.vfx.createGlowTexture('#00ffff'),
-        color: 0x00ffff,
+        map: g.vfx.createGlowTexture(glowCss),
+        color: c,
         transparent: true,
         opacity: 0.8,
         blending: THREE.AdditiveBlending
@@ -582,12 +584,12 @@ export class SpawnSystem {
     glow.scale.set(12, 12, 1);
     mesh.add(glow);
 
-    const ring = this._createSquareRing({ size: 3.2, thickness: 0.12, color: 0x00ffff, opacity: 0.55 });
+    const ring = this._createSquareRing({ size: 3.2, thickness: 0.12, color: c, opacity: 0.55 });
     ring.userData = { isLootRing: true };
     ring.rotation.x = Math.PI / 2;
     mesh.add(ring);
 
-    const light = new THREE.PointLight(0x00ffff, 5, 10);
+    const light = new THREE.PointLight(c, 5, 10);
     mesh.add(light);
 
     mesh.userData = { ring, glow, baseScale: { x: 2.0, y: 2.0, z: 2.0 } };
@@ -596,12 +598,15 @@ export class SpawnSystem {
 
   _acquireCoinLoot() {
     const g = this.game;
+    const c = g.theme?.loot?.coin?.color ?? 0xffd24a;
+    const glowCss = g.theme?.loot?.coin?.glowCss ?? '#ffb703';
+    const emissive = g.theme?.loot?.coin?.emissive ?? 0xff7a18;
     const loot = this._coinLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
       loot.scale.set(1.5, 0.8, 2.5);
-      loot.material.color.setHex(0xffd700);
-      loot.material.emissive.setHex(0xffaa00);
+      loot.material.color.setHex(c);
+      loot.material.emissive.setHex(emissive);
       loot.material.emissiveIntensity = 0.8;
       loot.material.metalness = 1.0;
       loot.material.roughness = 0.2;
@@ -609,8 +614,8 @@ export class SpawnSystem {
     }
 
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xffd700,
-      emissive: 0xffaa00,
+      color: c,
+      emissive,
       emissiveIntensity: 0.8,
       metalness: 1.0,
       roughness: 0.2
@@ -620,8 +625,8 @@ export class SpawnSystem {
 
     const glow = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: g.vfx.createGlowTexture('#ffaa00'),
-        color: 0xffaa00,
+        map: g.vfx.createGlowTexture(glowCss),
+        color: emissive,
         transparent: true,
         opacity: 0.8,
         blending: THREE.AdditiveBlending
@@ -630,7 +635,7 @@ export class SpawnSystem {
     glow.scale.set(12, 12, 1);
     mesh.add(glow);
 
-    const ring = this._createSquareRing({ size: 2.8, thickness: 0.1, color: 0xffaa00, opacity: 0.55 });
+    const ring = this._createSquareRing({ size: 2.8, thickness: 0.1, color: emissive, opacity: 0.55 });
     ring.userData = { isLootRing: true };
     ring.rotation.x = Math.PI / 2;
     mesh.add(ring);

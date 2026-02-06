@@ -46,7 +46,7 @@ export class VfxSystem {
 
     const ws = g.worldScale ?? 1;
     const size = (isBoosting ? 0.6 : 0.25) * ws;
-    const color = isBoosting ? 0x00ffff : 0x0088ff;
+    const color = isBoosting ? (g.theme?.vfx?.engineBoost ?? 0x35e6ff) : (g.theme?.vfx?.engine ?? 0x2dffb5);
     const baseOpacity = isBoosting ? 0.8 : 0.4;
     const life = isBoosting ? 25 : 15;
 
@@ -210,14 +210,14 @@ export class VfxSystem {
       s = new THREE.Mesh(
         this._smokeGeo,
         new THREE.MeshBasicMaterial({
-          color: 0x00ffff,
+          color: g.theme?.vfx?.laser ?? 0x35e6ff,
           transparent: true,
           opacity: 0.5
         })
       );
     } else {
       s.visible = true;
-      s.material.color.setHex(0x00ffff);
+      s.material.color.setHex(g.theme?.vfx?.laser ?? 0x35e6ff);
       s.material.opacity = 0.5;
     }
 
@@ -391,11 +391,15 @@ export class VfxSystem {
     if (!g.particles) g.particles = [];
 
     const isPlanet = type === 'planet';
+    const shockC = g.theme?.vfx?.shockwave ?? 0xffc14d;
+    const laserC = g.theme?.vfx?.laser ?? 0x35e6ff;
+    const warmC = 0xff6b3d;
+    const pinkC = 0xff6ec7;
 
     // 1. Core Shockwave (Expanding slab; voxel-friendly)
     const ringGeo = new THREE.BoxGeometry(1, 1, 0.25);
     const ringMat = new THREE.MeshBasicMaterial({
-      color: isPlanet ? 0xff4400 : 0xffaa44,
+      color: isPlanet ? warmC : shockC,
       transparent: true,
       opacity: 1,
       blending: THREE.AdditiveBlending
@@ -429,7 +433,7 @@ export class VfxSystem {
     // 2. Fireballs
     const fireballCount = isPlanet ? 25 : 5;
     for (let i = 0; i < fireballCount; i++) {
-      const color = isPlanet ? (Math.random() > 0.5 ? 0xff0000 : 0xffaa00) : 0xffffff;
+      const color = isPlanet ? (Math.random() > 0.5 ? warmC : pinkC) : laserC;
       const radius = size * (isPlanet ? 0.3 : 0.2);
       const fireball = this.spawnFireball(position, radius, color, true);
 
@@ -441,7 +445,7 @@ export class VfxSystem {
     const sparkCount = Math.floor(size * (isPlanet ? 30 : 15));
     for (let i = 0; i < sparkCount; i++) {
       const sparkSize = isPlanet ? 0.5 : 0.2;
-      const sparkColor = isPlanet ? 0xff8800 : 0xffdd44;
+      const sparkColor = isPlanet ? warmC : shockC;
       const p = this.spawnSpark(position, sparkSize, sparkColor);
       p.userData.velocity.set(
         (Math.random() - 0.5) * size * (isPlanet ? 1.5 : 2.5),

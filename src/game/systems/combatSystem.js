@@ -245,8 +245,10 @@ export class CombatSystem {
     const laserGeo = new THREE.BoxGeometry(beamThick, beamThick, beamLen);
     // Origin at the back of the beam so it starts at the ship nose.
     laserGeo.translate(0, 0, beamLen * 0.5);
+    const laserColor = g.theme?.vfx?.laser ?? 0x35e6ff;
+    const laserCore = g.theme?.vfx?.laserCore ?? 0xffffff;
     const laserMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: laserColor,
       transparent: true,
       opacity: 0.95,
       blending: THREE.AdditiveBlending
@@ -255,13 +257,13 @@ export class CombatSystem {
 
     const coreGeo = new THREE.BoxGeometry(beamThick * 0.42, beamThick * 0.42, beamLen * 1.02);
     coreGeo.translate(0, 0, beamLen * 0.5);
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const coreMat = new THREE.MeshBasicMaterial({ color: laserCore });
     bullet.add(new THREE.Mesh(coreGeo, coreMat));
 
     const glowGeo = new THREE.BoxGeometry(beamThick * 1.8, beamThick * 1.8, beamLen * 1.1);
     glowGeo.translate(0, 0, beamLen * 0.5);
     const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x66ccff,
+      color: laserColor,
       transparent: true,
       opacity: 0.28,
       blending: THREE.AdditiveBlending,

@@ -16,6 +16,7 @@ import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
 import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
+import { createPixelTileTexture } from './render/pixelTiles.js';
 
 export class Game {
     /**
@@ -84,19 +85,32 @@ export class Game {
         // Visual direction: voxel / Minecraft-ish space.
         this.visual = { mode: 'voxel' };
         this.voxel = {
-            size: 1.0
+            // World-units per voxel. 1.0 was reading a bit "LEGO micro";
+            // bumping this makes the blockiness more obvious.
+            size: 5.0
+        };
+        // Used for scaling legacy "world numbers" (ranges, speeds) tuned before voxel changes.
+        this.worldScale = this.voxel.size / 2.0;
+
+        // Single theme/palette for now; later this can be per-world.
+        this.theme = {
+            sky: 0x0b1022,
+            fog: 0x050716,
+            asteroidPalette: [0x58607a, 0x6a5a62, 0x4f6b6e, 0x5e5d49],
+            station: { hull: 0xa6adb8, dark: 0x1b1f2a, light: 0x66ccff },
+            ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0x66ccff }
         };
     }
 
     init() {
         // Scene setup
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x0b1022);
+        this.scene.background = new THREE.Color(this.theme.sky);
         // Keep fog subtle; helps distant voxels read without looking realistic.
-        this.scene.fog = new THREE.FogExp2(0x050716, 0.00018);
+        this.scene.fog = new THREE.FogExp2(this.theme.fog, 0.00018 / this.worldScale);
 
         // Camera setup - Reduced FOV to 60 for less distortion
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000 * this.worldScale);
         
         // Renderer setup
         this.renderer = new THREE.WebGLRenderer({
@@ -126,16 +140,19 @@ export class Game {
 
         // Lighting
         // Minecraft-ish: simple ambient + key + faint rim.
-        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.1);
+        // Ambient is intentionally a bit high; Minecraft-like face shading provides the depth.
+        const ambientLight = new THREE.AmbientLight(0x9fb7ff, 1.35);
         this.scene.add(ambientLight);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.25);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.1);
         sunLight.position.set(120, 160, 90);
         this.scene.add(sunLight);
 
         const rim = new THREE.DirectionalLight(0x66ccff, 0.35);
         rim.position.set(-120, 20, -180);
         this.scene.add(rim);
+
+        this._initVoxelTextures();
 
         // Backdrop
         this.createRetroBackdrop(); // still fine: it's a starfield + nebula sprites
@@ -178,7 +195,7 @@ export class Game {
         const posArray = new Float32Array(dustCount * 3);
         
         for(let i = 0; i < dustCount * 3; i++) {
-            posArray[i] = (Math.random() - 0.5) * 400; // 400 unit box
+            posArray[i] = (Math.random() - 0.5) * 400 * this.worldScale; // scaled box
         }
         
         dustGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
@@ -192,6 +209,7 @@ export class Game {
         });
         
         this.spaceDustPoints = new THREE.Points(dustGeo, dustMat);
+        this.spaceDustPoints.userData = { range: 200 * this.worldScale };
         this.scene.add(this.spaceDustPoints);
     }
 
@@ -219,10 +237,11 @@ export class Game {
             return { points, range, drift };
         };
 
+        const ws = this.worldScale;
         this.retroBackdropLayers = [
-            mkLayer({ count: 850, range: 550, size: 2.2, color: 0xcfe3ff, opacity: 0.85, drift: 0.24 }),
-            mkLayer({ count: 520, range: 850, size: 2.8, color: 0xa7d0ff, opacity: 0.72, drift: 0.16 }),
-            mkLayer({ count: 260, range: 1200, size: 3.3, color: 0xffd2a8, opacity: 0.65, drift: 0.09 })
+            mkLayer({ count: 850, range: 550 * ws, size: 2.2, color: 0xcfe3ff, opacity: 0.85, drift: 0.24 }),
+            mkLayer({ count: 520, range: 850 * ws, size: 2.8, color: 0xa7d0ff, opacity: 0.72, drift: 0.16 }),
+            mkLayer({ count: 260, range: 1200 * ws, size: 3.3, color: 0xffd2a8, opacity: 0.65, drift: 0.09 })
         ];
 
         // Big pixel nebula sprites (chunky and low-detail on purpose)
@@ -243,12 +262,12 @@ export class Game {
             const scale = 900 + Math.random() * 1700;
             s.scale.set(scale, scale, 1);
             s.position.set(
-                (Math.random() - 0.5) * 3500,
-                (Math.random() - 0.5) * 3500,
-                (Math.random() - 0.5) * 3500
+                (Math.random() - 0.5) * 3500 * ws,
+                (Math.random() - 0.5) * 3500 * ws,
+                (Math.random() - 0.5) * 3500 * ws
             );
             s.material.rotation = Math.random() * Math.PI * 2;
-            s.userData = { range: 2200 };
+            s.userData = { range: 2200 * ws };
             this.scene.add(s);
             this.retroNebulaSprites.push(s);
         }
@@ -312,40 +331,72 @@ export class Game {
         addBox(lights, -1, 0, 12, 1, 0, 14);
 
         const hullMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0xa6adb8, emissive: 0x0b0c12, emissiveIntensity: 0.08 })
+            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size, faceShading: true }),
+            this._voxLit({ color: this.theme.station.hull, map: this._voxelTextures.panels, emissive: 0x0b0c12, emissiveIntensity: 0.06 })
         );
         const darkMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0x1b1f2a, emissive: 0x070814, emissiveIntensity: 0.15 })
+            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size, faceShading: true }),
+            this._voxLit({ color: this.theme.station.dark, map: this._voxelTextures.panelsDark, emissive: 0x070814, emissiveIntensity: 0.12 })
         );
         const lightMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(lights, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0x66ccff, emissive: 0x66ccff, emissiveIntensity: 1.2 })
+            buildVoxelSurfaceGeometry(lights, { voxelSize: this.voxel.size, faceShading: false }),
+            this._voxLit({ color: this.theme.station.light, map: null, emissive: this.theme.station.light, emissiveIntensity: 1.35 })
         );
 
         group.add(hullMesh, darkMesh, lightMesh);
 
         this.baseStation = group;
-        this.baseStation.position.set(0, 0, -120);
+        this.baseStation.position.set(0, 0, -120 * this.worldScale);
         this.scene.add(this.baseStation);
         
         // Add a glow or some indicator
-        const light = new THREE.PointLight(0x00ffff, 65, 90);
+        const light = new THREE.PointLight(0x00ffff, 65, 90 * this.worldScale);
         light.position.copy(this.baseStation.position);
         this.scene.add(light);
     }
 
-    _voxLit({ color, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
+    _voxLit({ color, map = null, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
         const mat = new THREE.MeshStandardMaterial({
             color,
+            map: map ?? null,
             emissive,
             emissiveIntensity,
             metalness: 0.0,
             roughness: 1.0,
-            flatShading: true
+            flatShading: true,
+            vertexColors: true
         });
         return mat;
+    }
+
+    _initVoxelTextures() {
+        // Shared pixel-art tiles. We tint in materials via `color` so textures stay neutral.
+        this._voxelTextures = {
+            panels: createPixelTileTexture({
+                kind: 'panels',
+                base: 0xb9bec8,
+                dark: 0x7f8796,
+                light: 0xe7eaf0
+            }),
+            panelsDark: createPixelTileTexture({
+                kind: 'panels',
+                base: 0x222738,
+                dark: 0x13192a,
+                light: 0x3b4766
+            }),
+            rock: createPixelTileTexture({
+                kind: 'rock',
+                base: 0x6a6f7d,
+                dark: 0x3e4350,
+                light: 0x8f96a8
+            }),
+            stripes: createPixelTileTexture({
+                kind: 'stripes',
+                base: 0xffcc44,
+                dark: 0x2a2a33,
+                light: 0xffffff
+            })
+        };
     }
 
     createPlayerShip() {
@@ -388,32 +439,32 @@ export class Game {
         addBox(accent, 5, 0, 5, 6, 0, 7);
 
         const hullMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: mainColor, emissive: 0x0b0b12, emissiveIntensity: 0.08 })
+            buildVoxelSurfaceGeometry(hull, { voxelSize: this.voxel.size, faceShading: true }),
+            this._voxLit({ color: mainColor, map: this._voxelTextures.panels, emissive: 0x0b0b12, emissiveIntensity: 0.06 })
         );
         const darkMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0x1b1f2a, emissive: 0x050512, emissiveIntensity: 0.12 })
+            buildVoxelSurfaceGeometry(dark, { voxelSize: this.voxel.size, faceShading: true }),
+            this._voxLit({ color: this.theme.ship.dark, map: this._voxelTextures.panelsDark, emissive: 0x050512, emissiveIntensity: 0.10 })
         );
         const accentMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(accent, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0xffaa22, emissive: 0x3a1b00, emissiveIntensity: 0.18 })
+            buildVoxelSurfaceGeometry(accent, { voxelSize: this.voxel.size, faceShading: true }),
+            this._voxLit({ color: this.theme.ship.accent, map: this._voxelTextures.stripes, emissive: 0x3a1b00, emissiveIntensity: 0.16 })
         );
         const glassMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(glass, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0x0b1222, emissive: 0x00aaff, emissiveIntensity: 0.7 })
+            buildVoxelSurfaceGeometry(glass, { voxelSize: this.voxel.size, faceShading: false }),
+            this._voxLit({ color: this.theme.ship.glass, map: null, emissive: 0x00aaff, emissiveIntensity: 0.75 })
         );
         const thrusterMesh = new THREE.Mesh(
-            buildVoxelSurfaceGeometry(thruster, { voxelSize: this.voxel.size }),
-            this._voxLit({ color: 0x66ccff, emissive: 0x66ccff, emissiveIntensity: 2.0 })
+            buildVoxelSurfaceGeometry(thruster, { voxelSize: this.voxel.size, faceShading: false }),
+            this._voxLit({ color: this.theme.ship.thruster, map: null, emissive: this.theme.ship.thruster, emissiveIntensity: 2.2 })
         );
 
         group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh);
 
         // Store engine positions for trails (Tip of the glow)
         this.engineOffsets = [
-            new THREE.Vector3(-2, 0, -10),
-            new THREE.Vector3(2, 0, -10)
+            new THREE.Vector3(-2, 0, -10).multiplyScalar(this.voxel.size),
+            new THREE.Vector3(2, 0, -10).multiplyScalar(this.voxel.size)
         ];
 
         this.player = group;
@@ -471,34 +522,27 @@ export class Game {
             }
         }
 
-        const asteroidPalette = [
-            0x58607a, // blue gray
-            0x6a5a62, // warm gray
-            0x4f6b6e, // teal gray
-            0x5e5d49  // olive gray
-        ];
-
         // Create asteroids
         for (let i = 0; i < 300; i++) {
             const variant = this._voxelAsteroidVariants[i % this._voxelAsteroidVariants.length];
-            const asteroidColor = asteroidPalette[Math.floor(Math.random() * asteroidPalette.length)];
-            const material = this._voxLit({ color: asteroidColor, emissive: 0x060814, emissiveIntensity: 0.06 });
+            const asteroidColor = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
+            const material = this._voxLit({ color: asteroidColor, map: this._voxelTextures.rock, emissive: 0x060814, emissiveIntensity: 0.05 });
 
             const asteroid = new THREE.Mesh(variant.geo, material);
-            const scale = 1.2 + Math.random() * 7.5;
+            const scale = (1.2 + Math.random() * 7.5) * this.worldScale;
             asteroid.scale.set(scale, scale, scale);
             
             asteroid.position.set(
-                (Math.random() - 0.5) * 3000,
-                (Math.random() - 0.5) * 3000,
-                (Math.random() - 0.5) * 3000
+                (Math.random() - 0.5) * 3000 * this.worldScale,
+                (Math.random() - 0.5) * 3000 * this.worldScale,
+                (Math.random() - 0.5) * 3000 * this.worldScale
             );
             
             asteroid.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
             
             // Don't place near base
-            if (asteroid.position.distanceTo(this.baseStation.position) < 150) {
-                asteroid.position.x += 300;
+            if (asteroid.position.distanceTo(this.baseStation.position) < 150 * this.worldScale) {
+                asteroid.position.x += 300 * this.worldScale;
             }
             
             asteroid.userData = { 
@@ -562,15 +606,15 @@ export class Game {
         for (let i = 0; i < 8; i++) {
             const color = planetColors[i % planetColors.length];
             const variant = this._voxelPlanetVariants[i % this._voxelPlanetVariants.length];
-            const mat = this._voxLit({ color, emissive: color, emissiveIntensity: 0.18 });
+            const mat = this._voxLit({ color, map: this._voxelTextures.rock, emissive: 0x000000, emissiveIntensity: 0.0 });
             const planet = new THREE.Mesh(variant.geo, mat);
-            const scale = 80 + Math.random() * 120;
+            const scale = (80 + Math.random() * 120) * this.worldScale;
             planet.scale.set(scale, scale, scale);
             
             planet.position.set(
-                (Math.random() - 0.5) * 6000,
-                (Math.random() - 0.5) * 6000,
-                (Math.random() - 0.5) * 6000
+                (Math.random() - 0.5) * 6000 * this.worldScale,
+                (Math.random() - 0.5) * 6000 * this.worldScale,
+                (Math.random() - 0.5) * 6000 * this.worldScale
             );
             
             planet.userData = {

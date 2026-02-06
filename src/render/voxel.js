@@ -75,16 +75,30 @@ export function addSphere(set, radius, opts = {}) {
  * This is dramatically cheaper than merging BoxGeometry per cell (which keeps interior faces).
  *
  * @param {Set<string>} filled
- * @param {{voxelSize?: number}} [opts]
+ * @param {{
+ *   voxelSize?: number,
+ *   faceShading?: boolean,
+ *   shadeTop?: number,
+ *   shadeSide?: number,
+ *   shadeBottom?: number
+ * }} [opts]
  */
 export function buildVoxelSurfaceGeometry(filled, opts = {}) {
   const voxelSize = opts.voxelSize ?? 1;
   const hs = voxelSize * 0.5;
+  const faceShading = opts.faceShading ?? true;
+  const shadeTop = opts.shadeTop ?? 1.0;
+  const shadeSide = opts.shadeSide ?? 0.82;
+  const shadeBottom = opts.shadeBottom ?? 0.65;
 
   /** @type {number[]} */
   const positions = [];
   /** @type {number[]} */
   const normals = [];
+  /** @type {number[]} */
+  const uvs = [];
+  /** @type {number[]} */
+  const colors = [];
 
   const pushFace = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, ny, nz) => {
     // 2 triangles: a-b-c, a-c-d
@@ -93,6 +107,16 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
       ax, ay, az, cx, cy, cz, dx, dy, dz
     );
     for (let i = 0; i < 6; i++) normals.push(nx, ny, nz);
+
+    // Simple 0..1 UV per voxel face. Each voxel face maps the full tile.
+    // a(0,0) b(0,1) c(1,1) d(1,0)
+    uvs.push(
+      0, 0, 0, 1, 1, 1,
+      0, 0, 1, 1, 1, 0
+    );
+
+    const shade = faceShading ? (ny === 1 ? shadeTop : (ny === -1 ? shadeBottom : shadeSide)) : 1.0;
+    for (let i = 0; i < 6; i++) colors.push(shade, shade, shade);
   };
 
   const dirs = [
@@ -174,7 +198,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
   geo.computeBoundingSphere();
   return geo;
 }
-

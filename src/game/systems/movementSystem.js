@@ -30,10 +30,11 @@ export class MovementSystem {
     // Keep behavior stable even if stepHz changes.
     const k = dtSec * 60;
 
+    const ws = g.worldScale ?? 1;
     const pitchSpeed = 0.010 * k;
     const yawSpeed = 0.010 * k;
     const rollSpeed = 0.015 * k;
-    const acceleration = (g.keys['KeyZ'] ? 0.08 : 0.04) * k;
+    const acceleration = (g.keys['KeyZ'] ? 0.08 : 0.04) * k * ws;
     const friction = Math.pow(0.98, k); // convert per-tick friction to dt-aware
 
     const t = g.world.transform.get(g.playerEntityId);
@@ -77,7 +78,7 @@ export class MovementSystem {
     }
 
     // Velocity & Thrust Calculation
-    const targetSpeedVal = g.keys['KeyZ'] ? 5.0 : 2.5;
+    const targetSpeedVal = (g.keys['KeyZ'] ? 5.0 : 2.5) * ws;
     const speedLerp = 1 - Math.pow(1 - 0.05, k);
     g.currentSpeed = THREE.MathUtils.lerp(g.currentSpeed, targetSpeedVal, speedLerp);
 

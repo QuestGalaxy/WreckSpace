@@ -31,8 +31,12 @@ export class CameraSystem {
     const upLerp = 1 - Math.pow(1 - 0.1, k);
     const fovLerp = 1 - Math.pow(1 - 0.04, k);
 
-    const offsetZ = g.keys['KeyZ'] ? -30 : -25;
-    const offsetY = g.keys['KeyZ'] ? 12 : 14;
+    // Camera sits behind+above the ship. Keep it ship-relative so controls/aiming feel consistent.
+    const ws = g.worldScale ?? 1;
+    const camScale = Math.pow(ws, 0.75);
+    const distScale = 1.48;
+    const offsetZ = (g.keys['KeyZ'] ? -36 : -30) * camScale * distScale;
+    const offsetY = (g.keys['KeyZ'] ? 20 : 22) * camScale;
 
     this._idealOffset.set(0, offsetY, offsetZ);
 
@@ -49,9 +53,11 @@ export class CameraSystem {
     this._worldOffset.copy(this._idealOffset).applyQuaternion(this._playerQuat).add(this._playerPos);
     g.camera.position.lerp(this._worldOffset, follow);
 
-    this._lookTarget.set(0, 0, 60).applyQuaternion(this._playerQuat).add(this._playerPos);
+    // Look ahead a bit, but keep it in ship-local space.
+    this._lookTarget.set(0, 6 * camScale, 90 * camScale).applyQuaternion(this._playerQuat).add(this._playerPos);
     g.camera.lookAt(this._lookTarget);
 
+    // Inherit ship roll slightly (keeps movement feel tight).
     this._playerUp.set(0, 1, 0).applyQuaternion(this._playerQuat);
     g.camera.up.lerp(this._playerUp, upLerp);
 

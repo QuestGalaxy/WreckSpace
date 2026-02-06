@@ -36,9 +36,13 @@ export class CombatSystem {
     const prq = g.world.rotationQuat.get(g.playerEntityId);
     if (!pt || !prq) return;
 
+    const ws = g.worldScale ?? 1;
     let bestTargetEntityId = null;
-    let bestAngle = 0.25; // Slightly wider cone
-    const maxDist = 500; // Increased range
+    let bestScore = Infinity;
+    // Scale target-lock range with the world scaling so voxel size changes don't break locking.
+    const maxDist = 500 * ws;
+    // Gate by cone, but bias toward larger targets so asteroids don't require pixel-perfect centering.
+    const cone = 0.45;
 
     this._playerPos.set(pt.x, pt.y, pt.z);
     this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
@@ -53,8 +57,14 @@ export class CombatSystem {
 
       this._dirToObj.normalize();
       const angle = 1 - this._forward.dot(this._dirToObj); // 0 means perfectly aligned
-      if (angle < bestAngle) {
-        bestAngle = angle;
+      if (angle > cone) continue;
+
+      const radius = t.sx ?? 1;
+      // Prefer closer + more centered targets, but give big objects a small assist.
+      const sizeAssist = Math.min(0.22, (radius / Math.max(1, dist)) * 0.22);
+      const score = angle - sizeAssist;
+      if (score < bestScore) {
+        bestScore = score;
         bestTargetEntityId = entityId;
       }
     }
@@ -90,6 +100,10 @@ export class CombatSystem {
     this._playerPos.set(pt.x, pt.y, pt.z);
     this._playerQuat.set(prq.x, prq.y, prq.z, prq.w);
 
+    // Scale muzzle position with voxel size so bigger blocks keep proportions.
+    const vox = g.voxel?.size ?? 1;
+    this._noseOffset.set(0, 0, 2 * vox);
+
     // Ensure audio is ready on first interaction
     g.soundManager.init();
     g.soundManager.playShoot();
@@ -97,8 +111,13 @@ export class CombatSystem {
     g.lastShotTime = now;
     if (g.hud) g.hud.crosshairPulseFiring();
 
-    // Voxel-ish laser: blocky beam with a bright core.
-    const laserGeo = new THREE.BoxGeometry(0.6, 0.6, 10);
+    // Voxel-ish laser: 1-voxel thick beam with a bright core + soft additive glow.
+    const beamLen = 6 * vox;
+    const beamThick = 1 * vox;
+
+    const laserGeo = new THREE.BoxGeometry(beamThick, beamThick, beamLen);
+    // Origin at the back of the beam so it starts at the ship nose.
+    laserGeo.translate(0, 0, beamLen * 0.5);
     const laserMat = new THREE.MeshBasicMaterial({
       color: 0x00ffff,
       transparent: true,
@@ -107,9 +126,21 @@ export class CombatSystem {
     });
     const bullet = new THREE.Mesh(laserGeo, laserMat);
 
-    const coreGeo = new THREE.BoxGeometry(0.25, 0.25, 10.2);
+    const coreGeo = new THREE.BoxGeometry(beamThick * 0.42, beamThick * 0.42, beamLen * 1.02);
+    coreGeo.translate(0, 0, beamLen * 0.5);
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     bullet.add(new THREE.Mesh(coreGeo, coreMat));
+
+    const glowGeo = new THREE.BoxGeometry(beamThick * 1.8, beamThick * 1.8, beamLen * 1.1);
+    glowGeo.translate(0, 0, beamLen * 0.5);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x66ccff,
+      transparent: true,
+      opacity: 0.28,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    bullet.add(new THREE.Mesh(glowGeo, glowMat));
 
     // Start exactly at the nose of the ship
     this._noseWorld.copy(this._noseOffset).applyQuaternion(this._playerQuat);
@@ -133,10 +164,11 @@ export class CombatSystem {
       bullet.quaternion.copy(this._playerQuat);
     }
 
+    const ws = g.worldScale ?? 1;
     bullet.userData = {
       // IMPORTANT: copy the direction vector. `_forward/_dirToObj` are scratch vectors reused
       // during target-lock updates; bullets need stable per-instance velocity.
-      velocity: new THREE.Vector3().copy(forward).multiplyScalar(15), // per-tick velocity (fixed timestep @ 60Hz)
+      velocity: new THREE.Vector3().copy(forward).multiplyScalar(15 * ws), // per-tick velocity (fixed timestep @ 60Hz)
       life: 200
     };
 
@@ -144,7 +176,7 @@ export class CombatSystem {
     g.bullets.push(bullet);
 
     // Muzzle Flash Effect (blocky)
-    const flashGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+    const flashGeo = new THREE.BoxGeometry(1.2 * vox, 1.2 * vox, 1.2 * vox);
     const flashMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,

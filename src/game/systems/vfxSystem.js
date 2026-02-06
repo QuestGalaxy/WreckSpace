@@ -44,7 +44,8 @@ export class VfxSystem {
     const g = this.game;
     if (!g.particles) g.particles = [];
 
-    const size = isBoosting ? 0.6 : 0.25;
+    const ws = g.worldScale ?? 1;
+    const size = (isBoosting ? 0.6 : 0.25) * ws;
     const color = isBoosting ? 0x00ffff : 0x0088ff;
     const baseOpacity = isBoosting ? 0.8 : 0.4;
     const life = isBoosting ? 25 : 15;

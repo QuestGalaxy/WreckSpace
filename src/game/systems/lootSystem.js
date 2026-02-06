@@ -25,6 +25,7 @@ export class LootSystem {
   updateLoot(dtSec, nowSec) {
     const g = this.game;
     const k = dtSec * 60;
+    const ws = g.worldScale ?? 1;
     if (!g.playerEntityId) return;
     const playerT = g.world.transform.get(g.playerEntityId);
     if (!playerT) return;
@@ -57,7 +58,7 @@ export class LootSystem {
       const dy = playerT.y - t.y;
       const dz = playerT.z - t.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const magnetRange = 50;
+      const magnetRange = 50 * ws;
 
       if (dist < magnetRange && dist > 0.0001) {
         const inv = 1 / dist;
@@ -67,7 +68,7 @@ export class LootSystem {
         t.y += dy * inv * magnetStrength;
         t.z += dz * inv * magnetStrength;
 
-        if (dist < 10) {
+        if (dist < 10 * ws) {
           const shrink = Math.pow(0.9, k);
           t.sx *= shrink;
           t.sy *= shrink;
@@ -89,7 +90,7 @@ export class LootSystem {
         }
       }
 
-      if (dist < 5) {
+      if (dist < 5 * ws) {
         this.collectLootEntity(entityId, meta.value);
       }
     }
@@ -119,12 +120,13 @@ export class LootSystem {
   checkDeposit() {
     const g = this.game;
     if (!g.playerEntityId || !g.baseStation) return;
+    const ws = g.worldScale ?? 1;
     const t = g.world.transform.get(g.playerEntityId);
     if (!t) return;
     const dx = t.x - g.baseStation.position.x;
     const dy = t.y - g.baseStation.position.y;
     const dz = t.z - g.baseStation.position.z;
-    if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 30) {
+    if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 30 * ws) {
       if (g.stats.storage > 0) this.depositLoot();
     }
   }

@@ -50,7 +50,7 @@ export class EnvironmentSystem {
     if (!t) return;
 
     const positions = g.spaceDustPoints.geometry.attributes.position.array;
-    const range = 200;
+    const range = g.spaceDustPoints.userData?.range ?? 200;
     let needsUpdate = false;
 
     for (let i = 0; i < positions.length; i += 3) {

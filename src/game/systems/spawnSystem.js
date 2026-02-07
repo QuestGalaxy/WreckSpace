@@ -10,8 +10,9 @@ export class SpawnSystem {
 
     // Reused geometries; scale instances instead of allocating new geometry per spawn.
     this._fragmentGeo = new THREE.BoxGeometry(1, 1, 1);
+    // Loot visuals: keep them cheap but distinct (no heavy post FX needed).
     this._gemGeo = new THREE.BoxGeometry(1, 1, 1);
-    this._coinGeo = new THREE.BoxGeometry(1, 1, 1);
+    this._coinGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.22, 14, 1, false);
     this._voxelDebrisGeo = new THREE.BoxGeometry(1, 1, 1);
 
     /** @type {THREE.Mesh[]} */
@@ -36,6 +37,13 @@ export class SpawnSystem {
     // Scratch colors for debris tinting (avoid allocations in hot paths).
     this._tmpColor = new THREE.Color();
     this._tmpColor2 = new THREE.Color();
+
+    // Cached canvas labels for loot markers (higher res -> sharper text).
+    this._lootLabelCanvasSize = { w: 512, h: 128 };
+
+    // Marker visibility grace period after spawn (seconds).
+    this._lootMarkerGraceSec = 15;
+    this._lootMarkerGraceExplosionSec = 20;
   }
 
   /**
@@ -101,6 +109,7 @@ export class SpawnSystem {
     const scale = opts.scale ?? 1.0;
     const baseCount = obj.userData.type === 'planet' ? 20 : 3;
     const count = Math.max(0, Math.floor(baseCount * scale));
+    const nowSec = g._simTimeSec ?? 0;
 
     for (let i = 0; i < count; i++) {
       const isGem = Math.random() > 0.8;
@@ -124,8 +133,29 @@ export class SpawnSystem {
       // Simulation state lives in World; keep mesh userData for render-only handles.
       const ring = loot.userData.ring;
       const glow = loot.userData.glow;
+      const label = loot.userData.label;
+      const markerRoot = loot.userData.markerRoot;
+      const baseRingSize = loot.userData.baseRingSize;
+      const forceMarkerUntilSec = nowSec + this._lootMarkerGraceSec;
       const baseScale = loot.userData.baseScale;
-      loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
+      loot.userData = {
+        ring,
+        glow,
+        label,
+        markerRoot,
+        baseRingSize,
+        forceMarkerUntilSec,
+        baseScale,
+        entityId,
+        type: isGem ? 'gem' : 'coin',
+        value: isGem ? 50 : 10
+      };
+
+      if (label) {
+        const txt = isGem ? `Gem +50` : `Coin +10`;
+        this._setLootLabelText(label, txt, isGem ? 0x00ffff : 0xffaa00);
+        label.visible = true;
+      }
 
       g.world.transform.set(entityId, {
         x: loot.position.x,
@@ -161,6 +191,7 @@ export class SpawnSystem {
     const g = this.game;
     const { obj, hitWorldPos, bulletVelWorld, debrisPositions, resourcePositions } = info;
     if (!g.scene) return;
+    const nowSec = g._simTimeSec ?? 0;
 
     const vox = obj?.userData?.voxel;
     const ws = g.worldScale ?? 1;
@@ -227,8 +258,29 @@ export class SpawnSystem {
 
       const ring = loot.userData.ring;
       const glow = loot.userData.glow;
+      const label = loot.userData.label;
+      const markerRoot = loot.userData.markerRoot;
+      const baseRingSize = loot.userData.baseRingSize;
+      const forceMarkerUntilSec = nowSec + this._lootMarkerGraceSec;
       const baseScale = loot.userData.baseScale;
-      loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
+      loot.userData = {
+        ring,
+        glow,
+        label,
+        markerRoot,
+        baseRingSize,
+        forceMarkerUntilSec,
+        baseScale,
+        entityId,
+        type: isGem ? 'gem' : 'coin',
+        value: isGem ? 50 : 10
+      };
+
+      if (label) {
+        const txt = isGem ? `Gem +50` : `Coin +10`;
+        this._setLootLabelText(label, txt, isGem ? 0x00ffff : 0xffaa00);
+        label.visible = true;
+      }
 
       g.world.transform.set(entityId, {
         x: loot.position.x,
@@ -316,6 +368,7 @@ export class SpawnSystem {
     const g = this.game;
     if (!g.scene) return;
     if (!g.particles) g.particles = [];
+    const nowSec = g._simTimeSec ?? 0;
 
     const vox = obj?.userData?.voxel;
     if (!vox?.filled || vox.filled.size === 0) return;
@@ -382,8 +435,29 @@ export class SpawnSystem {
 
         const ring = loot.userData.ring;
         const glow = loot.userData.glow;
+        const label = loot.userData.label;
+        const markerRoot = loot.userData.markerRoot;
+        const baseRingSize = loot.userData.baseRingSize;
+        const forceMarkerUntilSec = nowSec + this._lootMarkerGraceExplosionSec;
         const baseScale = loot.userData.baseScale;
-        loot.userData = { ring, glow, baseScale, entityId, type: isGem ? 'gem' : 'coin' };
+        loot.userData = {
+          ring,
+          glow,
+          label,
+          markerRoot,
+          baseRingSize,
+          forceMarkerUntilSec,
+          baseScale,
+          entityId,
+          type: isGem ? 'gem' : 'coin',
+          value: isGem ? 50 : 10
+        };
+
+        if (label) {
+          const txt = isGem ? `Gem +50` : `Coin +10`;
+          this._setLootLabelText(label, txt, isGem ? 0x00ffff : 0xffaa00);
+          label.visible = true;
+        }
 
         g.world.transform.set(entityId, {
           x: loot.position.x,
@@ -428,7 +502,14 @@ export class SpawnSystem {
     const entityId = loot.userData?.entityId;
     if (entityId) this.game.renderRegistry.unbind(entityId);
     loot.visible = false;
-    loot.userData = { ring: loot.userData?.ring, glow: loot.userData?.glow, type: kind };
+    loot.userData = {
+      ring: loot.userData?.ring,
+      glow: loot.userData?.glow,
+      label: loot.userData?.label,
+      markerRoot: loot.userData?.markerRoot,
+      baseRingSize: loot.userData?.baseRingSize,
+      type: kind
+    };
 
     if (kind === 'gem') {
       if (this._gemLootPool.length < this._lootPoolLimit) this._gemLootPool.push(loot);
@@ -551,46 +632,35 @@ export class SpawnSystem {
     const loot = this._gemLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
-      loot.scale.setScalar(2.0);
-      loot.material.color.setHex(0x00ffff);
-      loot.material.emissive.setHex(0x00ffff);
-      loot.material.emissiveIntensity = 1.5;
-      loot.material.metalness = 0.9;
-      loot.material.roughness = 0.0;
+      loot.scale.setScalar(1.7);
+      loot.material.color.setHex(0x61f4ff);
+      loot.material.emissive.setHex(0x0b3a42);
+      loot.material.emissiveIntensity = 0.2;
+      loot.material.metalness = 0.25;
+      loot.material.roughness = 0.35;
+      this._ensureLootMarkerParts(loot, { kind: 'gem' });
       return loot;
     }
 
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      emissive: 0x00ffff,
-      emissiveIntensity: 1.5,
-      metalness: 0.9,
-      roughness: 0.0
+      color: 0x61f4ff,
+      emissive: 0x0b3a42,
+      emissiveIntensity: 0.2,
+      metalness: 0.25,
+      roughness: 0.35,
+      flatShading: true
     });
     const mesh = new THREE.Mesh(this._gemGeo, mat);
-    mesh.scale.set(2.0, 2.0, 2.0);
+    mesh.scale.setScalar(1.7);
 
-    const glow = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: g.vfx.createGlowTexture('#00ffff'),
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.8,
-        blending: THREE.AdditiveBlending
-      })
-    );
-    glow.scale.set(12, 12, 1);
-    mesh.add(glow);
-
-    const ring = this._createSquareRing({ size: 3.2, thickness: 0.12, color: 0x00ffff, opacity: 0.55 });
-    ring.userData = { isLootRing: true };
-    ring.rotation.x = Math.PI / 2;
+    // Marker components (indicator + label) provide readability; keep the mesh itself clean.
+    const ring = this._createLootIndicator({ size: 3.0, thickness: 0.085, arm: 0.95, color: 0x61f4ff, opacity: 0.65 });
+    ring.userData = { isLootRing: true, baseSize: 3.0 };
     mesh.add(ring);
 
-    const light = new THREE.PointLight(0x00ffff, 5, 10);
-    mesh.add(light);
-
-    mesh.userData = { ring, glow, baseScale: { x: 2.0, y: 2.0, z: 2.0 } };
+    mesh.userData = { ring, glow: null, baseScale: { x: 1.7, y: 1.7, z: 1.7 }, baseRingSize: 3.0 };
+    this._ensureLootMarkerParts(mesh, { kind: 'gem' });
+    void g;
     return mesh;
   }
 
@@ -599,43 +669,34 @@ export class SpawnSystem {
     const loot = this._coinLootPool.pop() ?? null;
     if (loot) {
       loot.visible = true;
-      loot.scale.set(1.5, 0.8, 2.5);
-      loot.material.color.setHex(0xffd700);
-      loot.material.emissive.setHex(0xffaa00);
-      loot.material.emissiveIntensity = 0.8;
-      loot.material.metalness = 1.0;
-      loot.material.roughness = 0.2;
+      loot.scale.setScalar(1.7);
+      loot.material.color.setHex(0xffd37a);
+      loot.material.emissive.setHex(0x2a1a00);
+      loot.material.emissiveIntensity = 0.2;
+      loot.material.metalness = 0.35;
+      loot.material.roughness = 0.45;
+      this._ensureLootMarkerParts(loot, { kind: 'coin' });
       return loot;
     }
 
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xffd700,
-      emissive: 0xffaa00,
-      emissiveIntensity: 0.8,
-      metalness: 1.0,
-      roughness: 0.2
+      color: 0xffd37a,
+      emissive: 0x2a1a00,
+      emissiveIntensity: 0.2,
+      metalness: 0.35,
+      roughness: 0.45,
+      flatShading: true
     });
     const mesh = new THREE.Mesh(this._coinGeo, mat);
-    mesh.scale.set(1.5, 0.8, 2.5);
+    mesh.scale.setScalar(1.7);
 
-    const glow = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: g.vfx.createGlowTexture('#ffaa00'),
-        color: 0xffaa00,
-        transparent: true,
-        opacity: 0.8,
-        blending: THREE.AdditiveBlending
-      })
-    );
-    glow.scale.set(12, 12, 1);
-    mesh.add(glow);
-
-    const ring = this._createSquareRing({ size: 2.8, thickness: 0.1, color: 0xffaa00, opacity: 0.55 });
-    ring.userData = { isLootRing: true };
-    ring.rotation.x = Math.PI / 2;
+    const ring = this._createLootIndicator({ size: 3.0, thickness: 0.085, arm: 0.95, color: 0xffc15e, opacity: 0.65 });
+    ring.userData = { isLootRing: true, baseSize: 3.0 };
     mesh.add(ring);
 
-    mesh.userData = { ring, glow, baseScale: { x: 1.5, y: 0.8, z: 2.5 } };
+    mesh.userData = { ring, glow: null, baseScale: { x: 1.7, y: 1.7, z: 1.7 }, baseRingSize: 3.0 };
+    this._ensureLootMarkerParts(mesh, { kind: 'coin' });
+    void g;
     return mesh;
   }
 
@@ -649,28 +710,221 @@ export class SpawnSystem {
     dst.metalness = src.metalness ?? dst.metalness;
   }
 
-  _createSquareRing({ size, thickness, color, opacity }) {
-    const segGeoH = new THREE.BoxGeometry(size, thickness, thickness);
-    const segGeoV = new THREE.BoxGeometry(thickness, size, thickness);
+  _createLootIndicator({ size, thickness, arm, color, opacity }) {
+    // "Bracket corners" indicator: new style, less noisy than a full ring.
+    const segGeoH = new THREE.BoxGeometry(arm, thickness, thickness);
+    const segGeoV = new THREE.BoxGeometry(thickness, arm, thickness);
     const mat = new THREE.MeshBasicMaterial({
       color,
       transparent: true,
       opacity,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
+      depthTest: false,
       depthWrite: false
     });
 
-    const top = segGeoH.clone();
-    top.translate(0, size * 0.5, 0);
-    const bot = segGeoH.clone();
-    bot.translate(0, -size * 0.5, 0);
-    const left = segGeoV.clone();
-    left.translate(-size * 0.5, 0, 0);
-    const right = segGeoV.clone();
-    right.translate(size * 0.5, 0, 0);
+    const h = size * 0.5;
+    const a = arm * 0.5;
+    const t = thickness * 0.5;
 
-    const merged = mergeGeometries([top, bot, left, right], false);
+    const parts = [];
+
+    // TL
+    {
+      const top = segGeoH.clone();
+      top.translate(-h + a, h - t, 0);
+      const left = segGeoV.clone();
+      left.translate(-h + t, h - a, 0);
+      parts.push(top, left);
+    }
+    // TR
+    {
+      const top = segGeoH.clone();
+      top.translate(h - a, h - t, 0);
+      const right = segGeoV.clone();
+      right.translate(h - t, h - a, 0);
+      parts.push(top, right);
+    }
+    // BL
+    {
+      const bot = segGeoH.clone();
+      bot.translate(-h + a, -h + t, 0);
+      const left = segGeoV.clone();
+      left.translate(-h + t, -h + a, 0);
+      parts.push(bot, left);
+    }
+    // BR
+    {
+      const bot = segGeoH.clone();
+      bot.translate(h - a, -h + t, 0);
+      const right = segGeoV.clone();
+      right.translate(h - t, -h + a, 0);
+      parts.push(bot, right);
+    }
+
+    const merged = mergeGeometries(parts, false);
     const mesh = new THREE.Mesh(merged, mat);
+    mesh.renderOrder = 20;
     return mesh;
+  }
+
+  _ensureLootMarkerParts(mesh, { kind }) {
+    if (!mesh) return;
+    const g = this.game;
+
+    // Marker root cancels loot mesh rotation/scale so ring/label stay stable (esp. coin's non-uniform scale).
+    let markerRoot = mesh.userData?.markerRoot ?? null;
+    if (!markerRoot) {
+      markerRoot = new THREE.Object3D();
+      markerRoot.renderOrder = 25;
+      mesh.add(markerRoot);
+    }
+
+    const indicatorCfg =
+      kind === 'gem'
+        ? { size: 3.0, thickness: 0.085, arm: 0.95, color: 0x61f4ff, opacity: 0.65 }
+        : { size: 3.0, thickness: 0.085, arm: 0.95, color: 0xffc15e, opacity: 0.65 };
+
+    // Ring config: ensure it is always visible and tuned for the current worldScale.
+    let ring = mesh.userData?.ring ?? null;
+    if (!ring || ring.userData?.markerStyle !== 'bracket-v1') {
+      if (ring?.parent) ring.parent.remove(ring);
+      ring = this._createLootIndicator(indicatorCfg);
+      ring.userData = { isLootRing: true, baseSize: indicatorCfg.size, markerStyle: 'bracket-v1' };
+      mesh.add(ring);
+      if (!mesh.userData) mesh.userData = {};
+      mesh.userData.ring = ring;
+      mesh.userData.baseRingSize = indicatorCfg.size;
+    }
+
+    if (ring?.material) {
+      ring.material.depthTest = false;
+      ring.material.depthWrite = false;
+      ring.renderOrder = 20;
+      ring.visible = true;
+    }
+
+    // Reset any pooled rotations so LootSystem can orient it consistently.
+    ring.rotation.set(0, 0, 0);
+    ring.quaternion.identity();
+    ring.up.set(0, 1, 0);
+    if (ring && ring.parent !== markerRoot) {
+      markerRoot.add(ring);
+    }
+
+    // Label sprite: created once and updated per-entity in spawn sites (type/value text).
+    let label = mesh.userData?.label ?? null;
+    if (!label) {
+      const canvas = document.createElement('canvas');
+      canvas.width = this._lootLabelCanvasSize.w;
+      canvas.height = this._lootLabelCanvasSize.h;
+      const ctx = canvas.getContext('2d');
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+
+      const mat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.NormalBlending,
+        depthTest: false,
+        depthWrite: false
+      });
+      label = new THREE.Sprite(mat);
+      label.renderOrder = 30;
+      label.userData._label = { canvas, ctx, tex };
+      // Hide until a spawn site sets its text (avoids flashing "..." on pooled reuse).
+      label.visible = false;
+      markerRoot.add(label);
+    } else {
+      label.visible = false;
+      if (label.material) {
+        label.material.depthTest = false;
+        label.material.depthWrite = false;
+        label.material.blending = THREE.NormalBlending;
+        label.renderOrder = 30;
+      }
+      if (label.parent !== markerRoot) {
+        markerRoot.add(label);
+      }
+    }
+
+    // Ensure userData references are present after pooling.
+    if (!mesh.userData) mesh.userData = {};
+    mesh.userData.label = label;
+    mesh.userData.type = mesh.userData.type ?? kind;
+    mesh.userData.markerRoot = markerRoot;
+
+    // Default label colors; actual text is applied by spawn sites.
+    if (kind === 'gem') this._setLootLabelText(label, 'GEM', 0x00ffff);
+    else this._setLootLabelText(label, 'COIN', 0xffaa00);
+    // Keep hidden until spawned.
+    label.visible = false;
+
+    // Make sure glow isn't occluded; it helps readability.
+    const glow = mesh.userData?.glow ?? null;
+    if (glow?.material) {
+      glow.material.depthTest = false;
+      glow.material.depthWrite = false;
+      glow.renderOrder = 10;
+      // Reduce bloom-y look around the marker.
+      glow.material.opacity = Math.min(0.45, glow.material.opacity ?? 0.45);
+    }
+
+    void g;
+  }
+
+  _setLootLabelText(sprite, text, accentHex) {
+    const info = sprite?.userData?._label;
+    if (!sprite || !info) return;
+    const { ctx, canvas, tex } = info;
+
+    const accent = `#${(accentHex >>> 0).toString(16).padStart(6, '0')}`;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Text first (so we can size the backplate to the actual text width).
+    ctx.font = 'bold 56px monospace';
+    ctx.textBaseline = 'middle';
+    const metrics = ctx.measureText(text);
+    const textW = Math.max(1, metrics.width);
+
+    // Compact backplate sized to the text (not full-width).
+    const barH = Math.round(canvas.height * 0.56);
+    const barY = Math.round((canvas.height - barH) * 0.5);
+    const padX = 18;
+    const accentW = 10;
+    const bgW = Math.min(canvas.width - 24, Math.round(accentW + padX + textW + padX));
+    const bgX = Math.round((canvas.width - bgW) * 0.5);
+
+    // Backplate (slightly more opaque so bloom doesn't wash text out)
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.55)';
+    ctx.fillRect(bgX, barY, bgW, barH);
+
+    // Border (subtle)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bgX + 1, barY + 1, bgW - 2, barH - 2);
+
+    // Accent bar
+    ctx.fillStyle = `${accent}CC`;
+    ctx.fillRect(bgX + 2, barY + 2, accentW, barH - 4);
+
+    // Text
+    // Avoid pure white; keeps bloom pass from blowing out the glyphs.
+    ctx.fillStyle = 'rgba(215, 232, 246, 0.92)';
+    // No glow/shadow: keep labels crisp and non-bloomy.
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillText(text, bgX + 2 + accentW + padX, canvas.height / 2 + 2);
+    ctx.shadowColor = 'transparent';
+
+    tex.needsUpdate = true;
   }
 }

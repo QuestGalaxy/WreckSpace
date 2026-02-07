@@ -7,6 +7,15 @@ export class LootSystem {
   constructor(game) {
     this.game = game;
     this._dir = new THREE.Vector3();
+
+    // Scratch for marker layout.
+    this._tmpLootWorld = new THREE.Vector3();
+    this._tmpCamSpace = new THREE.Vector3();
+    this._tmpWorldScale = new THREE.Vector3();
+    this._tmpInvQuat = new THREE.Quaternion();
+
+    // Throttle marker layout updates to reduce jitter from camera shake.
+    this._markerLayoutAcc = 0;
   }
 
   /**
@@ -29,6 +38,10 @@ export class LootSystem {
     if (!g.playerEntityId) return;
     const playerT = g.world.transform.get(g.playerEntityId);
     if (!playerT) return;
+
+    this._markerLayoutAcc += dtSec;
+    const doLayout = this._markerLayoutAcc >= 1 / 15; // 15Hz marker layout
+    if (doLayout) this._markerLayoutAcc = 0;
 
     for (const [entityId, meta] of g.world.loot) {
       const t = g.world.transform.get(entityId);
@@ -85,10 +98,48 @@ export class LootSystem {
         lootObj.rotation.set(t.rx, t.ry, t.rz);
         lootObj.scale.set(t.sx, t.sy, t.sz);
 
+        // Marker root cancels loot rotation/scale so ring/label do not wobble (coin is non-uniform).
+        const markerRoot = lootObj.userData?.markerRoot ?? null;
+        if (markerRoot) {
+          const sx = Math.max(0.0001, lootObj.scale.x);
+          const sy = Math.max(0.0001, lootObj.scale.y);
+          const sz = Math.max(0.0001, lootObj.scale.z);
+          markerRoot.scale.set(1 / sx, 1 / sy, 1 / sz);
+          markerRoot.quaternion.copy(lootObj.quaternion).invert();
+        }
+
         const ring = lootObj.userData?.ring;
+        const label = lootObj.userData?.label;
         if (ring) {
-          ring.rotation.z += 0.05 * k;
-          ring.material.opacity = 0.4 + Math.sin(nowSec * 5) * 0.2;
+          // Always readable: don't let depth occlusion hide the marker.
+          if (ring.material) {
+            ring.material.depthTest = false;
+            ring.material.depthWrite = false;
+          }
+
+          // Show markers within a configurable range only (reduce clutter).
+          const markerRange = 320 * ws;
+          const forced = (lootObj.userData?.forceMarkerUntilSec ?? 0) > nowSec;
+          const visible = forced || dist <= markerRange;
+          ring.visible = visible;
+          if (label) label.visible = visible;
+
+          // Stable opacity (no pulse) + fade with distance (reduces "busy" movement).
+          const distT = visible ? (1 - dist / markerRange) : 0;
+          if (ring.material) ring.material.opacity = 0.14 + 0.52 * distT;
+
+          if (doLayout) {
+            // Make ring face the camera but ignore camera roll (keeps the indicator from rotating during shake).
+            ring.up.set(0, 1, 0);
+            ring.lookAt(g.camera.position);
+
+            // Keep ring roughly constant on screen (like a HUD marker).
+            this._layoutLootRing(ring, ws);
+          }
+        }
+
+        if (label) {
+          if (doLayout) this._layoutLootLabel(label, ws);
         }
       }
 
@@ -141,5 +192,72 @@ export class LootSystem {
     g.soundManager.playDeposit();
     g.showMessage('Loot deposited! Energy refilled.');
     g.updateHudStats();
+  }
+
+  _layoutLootRing(ring, ws) {
+    const g = this.game;
+    if (!g.camera) return;
+    if (!ring) return;
+
+    ring.getWorldPosition(this._tmpLootWorld);
+    this._tmpCamSpace.copy(this._tmpLootWorld).applyMatrix4(g.camera.matrixWorldInverse);
+    const depth = Math.max(0.001, -this._tmpCamSpace.z);
+
+    const vh = g.renderer?.domElement?.clientHeight || window.innerHeight || 720;
+    const fovRad = THREE.MathUtils.degToRad(g.camera.fov);
+    const worldHeight = 2 * depth * Math.tan(fovRad * 0.5);
+    const unitsPerPx = worldHeight / vh;
+
+    // Desired on-screen ring size.
+    const desiredPx = 28;
+    const desiredWorld = desiredPx * unitsPerPx;
+    const baseSize = ring.userData?.baseSize ?? ring.parent?.parent?.userData?.baseRingSize ?? 3.0;
+    const s = desiredWorld / Math.max(0.0001, baseSize);
+    // Smooth scaling to avoid visible jitter.
+    const a = 0.28;
+    const cur = ring.scale.x || 0;
+    const next = cur > 0 ? THREE.MathUtils.lerp(cur, s, a) : s;
+    ring.scale.setScalar(next);
+
+    void ws;
+  }
+
+  _layoutLootLabel(label, ws) {
+    const g = this.game;
+    if (!g.camera) return;
+    if (!label) return;
+
+    label.getWorldPosition(this._tmpLootWorld);
+    this._tmpCamSpace.copy(this._tmpLootWorld).applyMatrix4(g.camera.matrixWorldInverse);
+    const depth = Math.max(0.001, -this._tmpCamSpace.z);
+
+    const vh = g.renderer?.domElement?.clientHeight || window.innerHeight || 720;
+    const fovRad = THREE.MathUtils.degToRad(g.camera.fov);
+    const worldHeight = 2 * depth * Math.tan(fovRad * 0.5);
+    const unitsPerPx = worldHeight / vh;
+
+    // Desired on-screen label size.
+    const desiredPxW = 96;
+    const desiredPxH = 18;
+    const desiredWorldW = desiredPxW * unitsPerPx;
+    const desiredWorldH = desiredPxH * unitsPerPx;
+    // Smooth scaling to avoid jitter.
+    const a = 0.28;
+    const curW = label.scale.x || 0;
+    const curH = label.scale.y || 0;
+    const nextW = curW > 0 ? THREE.MathUtils.lerp(curW, desiredWorldW, a) : desiredWorldW;
+    const nextH = curH > 0 ? THREE.MathUtils.lerp(curH, desiredWorldH, a) : desiredWorldH;
+    label.scale.set(nextW, nextH, 1);
+
+    // Float above the loot (keep pixel-based, stable).
+    const padPx = 10;
+    const padWorld = padPx * unitsPerPx;
+    label.position.set(0, padWorld, 0);
+
+    // Ensure label isn't occluded.
+    if (label.material) {
+      label.material.depthTest = false;
+      label.material.depthWrite = false;
+    }
   }
 }

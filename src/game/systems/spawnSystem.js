@@ -46,6 +46,21 @@ export class SpawnSystem {
     this._lootMarkerGraceExplosionSec = 20;
   }
 
+  _getLootWorldSize() {
+    // Define loot size in world units: match one voxel cube edge length.
+    return this.game?.voxel?.size ?? 5.0;
+  }
+
+  _getLootScaleForKind(kind) {
+    const size = this._getLootWorldSize();
+    if (kind === 'gem') {
+      // Unit cube -> scale to side length.
+      return size;
+    }
+    // Unit cylinder has diameter 1.4 (radius 0.7) -> scale so diameter matches.
+    return size / 1.4;
+  }
+
   /**
    * Spawns debris fragments and loot for a destroyed object.
    * Caller owns removing the destroyed object from the scene/arrays.
@@ -630,9 +645,10 @@ export class SpawnSystem {
   _acquireGemLoot() {
     const g = this.game;
     const loot = this._gemLootPool.pop() ?? null;
+    const s = this._getLootScaleForKind('gem');
     if (loot) {
       loot.visible = true;
-      loot.scale.setScalar(1.7);
+      loot.scale.setScalar(s);
       loot.material.color.setHex(0x61f4ff);
       loot.material.emissive.setHex(0x0b3a42);
       loot.material.emissiveIntensity = 0.2;
@@ -651,14 +667,14 @@ export class SpawnSystem {
       flatShading: true
     });
     const mesh = new THREE.Mesh(this._gemGeo, mat);
-    mesh.scale.setScalar(1.7);
+    mesh.scale.setScalar(s);
 
     // Marker components (indicator + label) provide readability; keep the mesh itself clean.
     const ring = this._createLootIndicator({ size: 3.0, thickness: 0.085, arm: 0.95, color: 0x61f4ff, opacity: 0.65 });
     ring.userData = { isLootRing: true, baseSize: 3.0 };
     mesh.add(ring);
 
-    mesh.userData = { ring, glow: null, baseScale: { x: 1.7, y: 1.7, z: 1.7 }, baseRingSize: 3.0 };
+    mesh.userData = { ring, glow: null, baseScale: { x: s, y: s, z: s }, baseRingSize: 3.0 };
     this._ensureLootMarkerParts(mesh, { kind: 'gem' });
     void g;
     return mesh;
@@ -667,9 +683,10 @@ export class SpawnSystem {
   _acquireCoinLoot() {
     const g = this.game;
     const loot = this._coinLootPool.pop() ?? null;
+    const s = this._getLootScaleForKind('coin');
     if (loot) {
       loot.visible = true;
-      loot.scale.setScalar(1.7);
+      loot.scale.setScalar(s);
       loot.material.color.setHex(0xffd37a);
       loot.material.emissive.setHex(0x2a1a00);
       loot.material.emissiveIntensity = 0.2;
@@ -688,13 +705,13 @@ export class SpawnSystem {
       flatShading: true
     });
     const mesh = new THREE.Mesh(this._coinGeo, mat);
-    mesh.scale.setScalar(1.7);
+    mesh.scale.setScalar(s);
 
     const ring = this._createLootIndicator({ size: 3.0, thickness: 0.085, arm: 0.95, color: 0xffc15e, opacity: 0.65 });
     ring.userData = { isLootRing: true, baseSize: 3.0 };
     mesh.add(ring);
 
-    mesh.userData = { ring, glow: null, baseScale: { x: 1.7, y: 1.7, z: 1.7 }, baseRingSize: 3.0 };
+    mesh.userData = { ring, glow: null, baseScale: { x: s, y: s, z: s }, baseRingSize: 3.0 };
     this._ensureLootMarkerParts(mesh, { kind: 'coin' });
     void g;
     return mesh;

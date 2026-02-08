@@ -20,54 +20,61 @@
                     <button id="ship-prev" class="hangar-nav" aria-label="Previous ship">‹</button>
 
                     <div class="hangar-panel">
-                        <div class="ship-name-row">
-                            <div id="ship-name" class="ship-name">Ship</div>
-                            <div id="ship-class" class="ship-class">Class</div>
-                        </div>
+                        <!-- Left Column: Identity & Actions -->
+                        <div class="ship-info-block">
+                            <div class="ship-name-row">
+                                <div id="ship-name" class="ship-name">Ship</div>
+                                <div id="ship-class" class="ship-class-hangar">Class</div>
+                            </div>
 
-                        <div class="stat-row hull">
-                            <div class="stat-label"><span>Hull</span> <span id="ship-hull">0</span></div>
-                            <div class="stat-track">
-                                <div id="ship-hull-bar" class="stat-value-bar" style="width: 0%"></div>
+                            <p id="ship-desc" class="card-desc"></p>
+
+                            <div class="hangar-actions">
+                                <button id="ship-select" class="hangar-select">Launch</button>
+                                <div class="hangar-mode" role="radiogroup" aria-label="Launch mode">
+                                    <label class="hangar-mode-opt">
+                                        <input type="radio" name="world-mode" value="main" checked>
+                                        <span>Main World</span>
+                                    </label>
+                                    <label class="hangar-mode-opt">
+                                        <input type="radio" name="world-mode" value="testArea">
+                                        <span>Tutorial</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="stat-row speed">
-                            <div class="stat-label"><span>Speed</span> <span id="ship-speed">0</span></div>
-                            <div class="stat-track">
-                                <div id="ship-speed-bar" class="stat-value-bar" style="width: 0%"></div>
+                        <!-- Right Column: Stats -->
+                        <div class="ship-stats-block">
+                            <div class="hangar-stat-row hull">
+                                <div class="hangar-stat-label"><span>Hull</span> <span id="ship-hull">0</span></div>
+                                <div class="hangar-stat-track">
+                                    <div id="ship-hull-bar" class="stat-value-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+
+                            <div class="hangar-stat-row speed">
+                                <div class="hangar-stat-label"><span>Speed</span> <span id="ship-speed">0</span></div>
+                                <div class="hangar-stat-track">
+                                    <div id="ship-speed-bar" class="stat-value-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+
+                            <div class="hangar-stat-row storage">
+                                <div class="hangar-stat-label"><span>Cargo</span> <span id="ship-storage">0</span></div>
+                                <div class="hangar-stat-track">
+                                    <div id="ship-storage-bar" class="stat-value-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+
+                            <div class="hangar-stat-row warp">
+                                <div class="hangar-stat-label"><span>Warp</span> <span id="ship-warp">0</span></div>
+                                <div class="hangar-stat-track">
+                                    <div id="ship-warp-bar" class="stat-value-bar" style="width: 0%"></div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="stat-row storage">
-                            <div class="stat-label"><span>Cargo Bay</span> <span id="ship-storage">0</span></div>
-                            <div class="stat-track">
-                                <div id="ship-storage-bar" class="stat-value-bar" style="width: 0%"></div>
-                            </div>
-                        </div>
-
-                        <div class="stat-row warp">
-                            <div class="stat-label"><span>Warp</span> <span id="ship-warp">0</span></div>
-                            <div class="stat-track">
-                                <div id="ship-warp-bar" class="stat-value-bar" style="width: 0%"></div>
-                            </div>
-                        </div>
-
-                        <p id="ship-desc" class="card-desc"></p>
-
-                        <div class="hangar-actions">
-                            <button id="ship-select" class="hangar-select">Launch</button>
-                            <div class="hangar-mode" role="radiogroup" aria-label="Launch mode">
-                                <label class="hangar-mode-opt">
-                                    <input type="radio" name="world-mode" value="main" checked>
-                                    <span>Main World</span>
-                                </label>
-                                <label class="hangar-mode-opt">
-                                    <input type="radio" name="world-mode" value="testArea">
-                                    <span>Tutorial/Test Area</span>
-                                </label>
-                            </div>
-                        </div>
                         <div class="hangar-hint">← → switch, Enter launch, swipe</div>
                     </div>
 

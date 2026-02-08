@@ -210,8 +210,8 @@ export class ShipSelectHangar {
       map: map ?? null,
       emissive,
       emissiveIntensity,
-      metalness: 0.2, // Slightly more reflective
-      roughness: 0.7, // Smoother for better light highlights
+      metalness: 0.65, // More reflective for premium look
+      roughness: 0.28, // Smoother for sharper specular highlights
       flatShading: true,
       vertexColors: true
     });
@@ -221,21 +221,21 @@ export class ShipSelectHangar {
     const ws = this.worldScale;
 
     // Lights
-    // Match the in-game vibe: strong ambient + one key directional + small fill/rim.
-    this.scene.add(new THREE.AmbientLight(0x8b8bb0, 1.35));
+    // DRAMATIC LIGHTING: Much lower ambient to let spotlights and rim lights shine
+    this.scene.add(new THREE.AmbientLight(0x222233, 0.25));
 
-    const key = new THREE.DirectionalLight(0xffffff, 1.15);
+    const key = new THREE.DirectionalLight(0xffffff, 1.8); // Brighter key
     key.position.set(140 * ws, 220 * ws, 180 * ws);
     key.target.position.set(0, 0, 0);
     this.scene.add(key);
     this.scene.add(key.target);
     this._key = key;
 
-    const fill = new THREE.DirectionalLight(0xffe8cc, 0.55);
+    const fill = new THREE.DirectionalLight(0xffe8cc, 0.45); // Lower fill for more contrast
     fill.position.set(120 * ws, 110 * ws, 260 * ws);
     this.scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(0x66ccff, 0.75);
+    const rim = new THREE.DirectionalLight(0x66ccff, 1.8); // Stronger rim light for silhouette pop
     rim.position.set(-200 * ws, 120 * ws, -240 * ws);
     this.scene.add(rim);
 
@@ -320,23 +320,23 @@ export class ShipSelectHangar {
     this.scene.add(this._innerHolo);
 
     // Add a spotlight above the selected ship
-    this._spotlight = new THREE.SpotLight(0xffffff, 15.0); // Increased intensity significantly
-    this._spotlight.position.set(0, 300 * ws, 50 * ws); // Move slightly forward to light the front
-    this._spotlight.angle = Math.PI / 6;
-    this._spotlight.penumbra = 0.3;
-    this._spotlight.decay = 1.0; // Linear-ish decay for better reach
-    this._spotlight.distance = 1500 * ws;
-    this._spotlight.target.position.set(0, 12 * this.voxelSize, 0); // Target the ship center
+    this._spotlight = new THREE.SpotLight(0xffffff, 80.0); // MASSIVE intensity for punch
+    this._spotlight.position.set(0, 320 * ws, 80 * ws);
+    this._spotlight.angle = Math.PI / 9; // Slightly sharper
+    this._spotlight.penumbra = 0.5;
+    this._spotlight.decay = 1.2; 
+    this._spotlight.distance = 2000 * ws;
+    this._spotlight.target.position.set(0, 12 * this.voxelSize, 0); 
     this.scene.add(this._spotlight);
     this.scene.add(this._spotlight.target);
 
     // Add a point light at the ship's center for a "glow from within/under" effect
-    this._shipGlow = new THREE.PointLight(0x66ccff, 2.0, 200 * ws);
+    this._shipGlow = new THREE.PointLight(0x66ccff, 6.5, 300 * ws); // Even stronger glow
     this._shipGlow.position.set(0, 12 * this.voxelSize, 0);
     this.scene.add(this._shipGlow);
 
     // Volumetric spotlight cone with a gradient
-    const coneGeo = new THREE.CylinderGeometry(5 * ws, 120 * ws, 400 * ws, 32, 20, true);
+    const coneGeo = new THREE.CylinderGeometry(8 * ws, 160 * ws, 450 * ws, 32, 20, true);
     
     // Add vertex colors for gradient
     const count_colors = coneGeo.attributes.position.count;
@@ -344,33 +344,33 @@ export class ShipSelectHangar {
     const pos = coneGeo.attributes.position;
     for (let i = 0; i < count_colors; i++) {
       const y = pos.getY(i);
-      // Normalized Y from -200 to 200 -> 0 to 1
-      const alpha = (y + 200 * ws) / (400 * ws);
-      const intensity = Math.pow(alpha, 2.5); // Sharp falloff at the top
-      colors[i * 3] = 0.4 * intensity;
-      colors[i * 3 + 1] = 0.8 * intensity;
+      // Normalized Y from -225 to 225 -> 0 to 1
+      const alpha = (y + 225 * ws) / (450 * ws);
+      const intensity = Math.pow(alpha, 4.0); // Very sharp falloff to keep top clean
+      colors[i * 3] = 0.4 * intensity; // Bluer, more saturated
+      colors[i * 3 + 1] = 0.7 * intensity;
       colors[i * 3 + 2] = 1.0 * intensity;
     }
     coneGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const coneMat = new THREE.MeshBasicMaterial({
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.10, // Lower opacity to avoid "gray filter"
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       vertexColors: true,
       depthWrite: false
     });
     this._spotCone = new THREE.Mesh(coneGeo, coneMat);
-    this._spotCone.position.set(0, 200 * ws, 0);
+    this._spotCone.position.set(0, 225 * ws, 0);
     this.scene.add(this._spotCone);
 
     // Add a secondary thinner "core" beam
-    const coreGeo = new THREE.CylinderGeometry(2 * ws, 40 * ws, 400 * ws, 16, 1, true);
+    const coreGeo = new THREE.CylinderGeometry(2 * ws, 45 * ws, 420 * ws, 16, 1, true);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0x88ddff,
       transparent: true,
-      opacity: 0.05,
+      opacity: 0.08,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false
@@ -527,14 +527,14 @@ export class ShipSelectHangar {
     }
 
     if (this._spotlight) {
-      this._spotlight.intensity = (15.0 + Math.sin(t * 10) * 1.5 * this._glitch);
+      this._spotlight.intensity = (40.0 + Math.sin(t * 10) * 5.0 * this._glitch);
     }
     if (this._shipGlow) {
-      this._shipGlow.intensity = 2.0 + Math.sin(t * 3) * 0.5;
+      this._shipGlow.intensity = 3.5 + Math.sin(t * 3) * 0.8;
     }
     if (this._spotCone) {
-      this._spotCone.material.opacity = (0.15 + Math.sin(t * 5) * 0.02) * (1 + this._glitch);
-      this._spotCone.rotation.y = t * 0.1; // Slow rotation for shimmer
+      this._spotCone.material.opacity = (0.10 + Math.sin(t * 5) * 0.02) * (1 + this._glitch);
+      this._spotCone.rotation.y = t * 0.12; // Slow rotation for shimmer
     }
     if (this._spotCore) {
       this._spotCore.material.opacity = (0.05 + Math.sin(t * 8) * 0.01) * (1 + this._glitch);

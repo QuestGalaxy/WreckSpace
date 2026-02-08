@@ -146,47 +146,106 @@
         <!-- Base Station Menu -->
         <div id="base-menu" class="screen hidden">
             <div class="base-menu-wrap">
-                <h2>Base Station</h2>
-
-                <div class="base-wallet">
-                    <div class="wallet-item"><span class="wallet-label">Coin</span> <span id="base-coin">0</span></div>
-                    <div class="wallet-item"><span class="wallet-label">Gem</span> <span id="base-gem">0</span></div>
-                    <div class="wallet-item"><span class="wallet-label">Weapon Lv</span> <span id="base-weapon-level">1</span></div>
+                <div class="base-head">
+                    <div class="base-title">
+                        <div class="base-kicker">Docked</div>
+                        <h2>Base Station</h2>
+                        <div class="base-sub">Spend Coin and Gem to upgrade your ship systems.</div>
+                    </div>
+                    <div class="base-wallet">
+                        <div class="wallet-item"><span class="wallet-label">Coin</span> <span id="base-coin">0</span></div>
+                        <div class="wallet-item"><span class="wallet-label">Gem</span> <span id="base-gem">0</span></div>
+                        <div class="wallet-item"><span class="wallet-label">Weapon Lv</span> <span id="base-weapon-level">1</span></div>
+                    </div>
                 </div>
 
                 <div class="base-sections">
                     <div class="base-section">
-                        <div class="base-section-title">Ship Upgrades (Coin)</div>
-                        <div class="base-grid">
-                            <button class="base-btn" data-upgrade-ship="speed">Speed <span class="cost" id="cost-ship-speed">-</span></button>
-                            <button class="base-btn" data-upgrade-ship="hull">Hull <span class="cost" id="cost-ship-hull">-</span></button>
-                            <button class="base-btn" data-upgrade-ship="cargo">Cargo <span class="cost" id="cost-ship-cargo">-</span></button>
-                            <button class="base-btn" data-upgrade-ship="warp">Warp <span class="cost" id="cost-ship-warp">-</span></button>
+                        <div class="base-section-title">Ship Upgrades <span class="base-section-chip">Coin</span></div>
+                        <div class="base-grid one-col">
+                            <button class="base-btn base-upgrade" data-upgrade-ship="speed">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Speed</span>
+                                    <span class="base-upgrade-desc">+10% top speed per tier</span>
+                                </span>
+                                <span class="cost" id="cost-ship-speed">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade" data-upgrade-ship="hull">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Hull</span>
+                                    <span class="base-upgrade-desc">+25 max hull per tier</span>
+                                </span>
+                                <span class="cost" id="cost-ship-hull">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade" data-upgrade-ship="cargo">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Cargo</span>
+                                    <span class="base-upgrade-desc">+10 cargo capacity per tier</span>
+                                </span>
+                                <span class="cost" id="cost-ship-cargo">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade" data-upgrade-ship="warp">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Warp</span>
+                                    <span class="base-upgrade-desc">-1s cooldown per tier (min 6s)</span>
+                                </span>
+                                <span class="cost" id="cost-ship-warp">-</span>
+                            </button>
                         </div>
                     </div>
 
                     <div class="base-section">
-                        <div class="base-section-title">Weapon Upgrades (Coin)</div>
-                        <div class="base-grid">
-                            <button class="base-btn" data-upgrade-weapon="damage">Damage <span class="cost" id="cost-weapon-damage">-</span></button>
-                            <button class="base-btn" data-upgrade-weapon="fireRate">Fire Rate <span class="cost" id="cost-weapon-fireRate">-</span></button>
-                            <button class="base-btn" data-craft-weapon-level="1">Craft Weapon Level <span class="cost" id="cost-weapon-level">-</span></button>
+                        <div class="base-section-title">Weapons <span class="base-section-chip">Coin/Gem</span></div>
+                        <div class="base-grid one-col">
+                            <button class="base-btn base-upgrade" data-upgrade-weapon="damage">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Damage</span>
+                                    <span class="base-upgrade-desc">+2 per tier</span>
+                                </span>
+                                <span class="cost" id="cost-weapon-damage">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade" data-upgrade-weapon="fireRate">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Fire Rate</span>
+                                    <span class="base-upgrade-desc">-60ms per tier (min 360ms)</span>
+                                </span>
+                                <span class="cost" id="cost-weapon-fireRate">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade primary" data-craft-weapon-level="1">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Craft Weapon Level</span>
+                                    <span class="base-upgrade-desc">Spend Gem to unlock higher tiers</span>
+                                </span>
+                                <span class="cost" id="cost-weapon-level">-</span>
+                            </button>
                         </div>
                     </div>
 
                     <div class="base-section">
-                        <div class="base-section-title">Addons (Gem) | Slots: <span id="addon-slots-text">0/3</span></div>
-                        <div class="base-grid">
-                            <button class="base-btn" data-buy-addon="magnet">Magnet <span class="cost" id="cost-addon-magnet">-</span></button>
-                            <button class="base-btn" data-buy-addon="shield">Shield <span class="cost" id="cost-addon-shield">-</span></button>
+                        <div class="base-section-title">Addons <span class="base-section-chip">Gem</span> <span class="base-section-meta">Slots: <span id="addon-slots-text">0/3</span></span></div>
+                        <div class="base-grid one-col">
+                            <button class="base-btn base-upgrade" data-buy-addon="magnet">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Magnet</span>
+                                    <span class="base-upgrade-desc">Bigger pickup radius</span>
+                                </span>
+                                <span class="cost" id="cost-addon-magnet">-</span>
+                            </button>
+                            <button class="base-btn base-upgrade" data-buy-addon="shield">
+                                <span class="base-upgrade-main">
+                                    <span class="base-upgrade-title">Shield</span>
+                                    <span class="base-upgrade-desc">Extra shield + regen per stack</span>
+                                </span>
+                                <span class="cost" id="cost-addon-shield">-</span>
+                            </button>
                         </div>
                         <div class="addon-slots" id="addon-slots"></div>
                     </div>
                 </div>
 
                 <div class="base-actions">
-                    <div class="base-hint">F: Warp to base | Spend Coin/Gem here only</div>
-                    <button id="resume-btn">Resume Exploration</button>
+                    <div class="base-hint">F: Warp to base | SHIFT/RMB: Precision aim | Click upgrade to buy</div>
+                    <button id="resume-btn" class="base-resume">Resume</button>
                 </div>
             </div>
         </div>

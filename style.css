@@ -770,36 +770,76 @@ body {
 }
 
 #base-menu {
-    background: rgba(0, 20, 40, 0.9);
+    background:
+        radial-gradient(circle at 50% 20%, rgba(120, 255, 255, 0.10) 0%, rgba(0, 0, 0, 0.60) 55%, rgba(0, 0, 0, 0.84) 100%),
+        rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(2px);
 }
 
 .base-menu-wrap {
-    width: min(920px, calc(100vw - 30px));
-    padding: 18px 18px 14px 18px;
-    border: 1px solid rgba(0, 255, 255, 0.25);
-    border-radius: 12px;
-    box-shadow: 0 0 24px rgba(0, 255, 255, 0.12), inset 0 0 24px rgba(0, 255, 255, 0.06);
-    background: linear-gradient(135deg, rgba(8, 16, 30, 0.88) 0%, rgba(6, 10, 18, 0.70) 100%);
+    width: min(1060px, calc(100vw - 26px));
+    padding: 16px 16px 14px 16px;
+    border: 1px solid rgba(140, 250, 255, 0.20);
+    border-radius: 14px;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.45),
+        0 0 40px rgba(90, 255, 255, 0.10),
+        inset 0 0 30px rgba(60, 220, 255, 0.06);
+    background:
+        linear-gradient(180deg, rgba(8, 14, 24, 0.92) 0%, rgba(6, 10, 18, 0.78) 100%);
+    clip-path: polygon(0% 0%, calc(100% - 18px) 0%, 100% 18px, 100% 100%, 18px 100%, 0% calc(100% - 18px));
+}
+
+.base-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.base-kicker {
+    font-size: 0.62rem;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: rgba(190, 235, 255, 0.62);
+    margin-bottom: 6px;
+}
+
+.base-title h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+}
+
+.base-sub {
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: rgba(220, 245, 255, 0.62);
+    letter-spacing: 0.4px;
 }
 
 .base-wallet {
     display: flex;
     gap: 14px;
     flex-wrap: wrap;
-    justify-content: center;
-    margin: 8px 0 16px 0;
+    justify-content: flex-end;
+    margin: 0;
 }
 
 .wallet-item {
-    font-family: 'Courier New', monospace;
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(160, 220, 255, 0.18);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(160, 220, 255, 0.14);
     padding: 8px 10px;
-    border-radius: 10px;
-    min-width: 140px;
+    border-radius: 12px;
+    min-width: 150px;
     display: flex;
     justify-content: space-between;
     gap: 10px;
+    box-shadow: inset 0 0 18px rgba(60, 220, 255, 0.04);
 }
 
 .wallet-label {
@@ -817,19 +857,44 @@ body {
 
 .base-section {
     width: 100%;
-    border: 1px solid rgba(160, 220, 255, 0.16);
-    border-radius: 12px;
+    border: 1px solid rgba(160, 220, 255, 0.12);
+    border-radius: 14px;
     padding: 12px;
     background: rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 0 22px rgba(60, 220, 255, 0.04);
 }
 
 .base-section-title {
-    font-size: 0.85rem;
-    letter-spacing: 2px;
+    font-size: 0.75rem;
+    letter-spacing: 4px;
     text-transform: uppercase;
-    color: rgba(220, 255, 255, 0.85);
+    color: rgba(220, 255, 255, 0.88);
     margin-bottom: 10px;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.base-section-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(140, 250, 255, 0.18);
+    background: rgba(0, 0, 0, 0.20);
+    color: rgba(190, 235, 255, 0.75);
+    font-size: 0.62rem;
+    letter-spacing: 2px;
+}
+
+.base-section-meta {
+    color: rgba(220, 245, 255, 0.55);
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    text-transform: none;
+    margin-left: auto;
 }
 
 .base-grid {
@@ -838,34 +903,82 @@ body {
     gap: 10px;
 }
 
+.base-grid.one-col {
+    grid-template-columns: 1fr;
+}
+
 .base-btn {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 10px;
     width: 100%;
-    background: linear-gradient(90deg, rgba(0, 255, 255, 0.10), rgba(0, 136, 255, 0.12));
-    border: 1px solid rgba(0, 255, 255, 0.35);
+    background:
+        linear-gradient(90deg, rgba(0, 255, 255, 0.10), rgba(0, 136, 255, 0.10)),
+        rgba(0, 0, 0, 0.16);
+    border: 1px solid rgba(140, 250, 255, 0.18);
     color: rgba(235, 250, 255, 0.95);
     padding: 10px 12px;
-    border-radius: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    border-radius: 12px;
+    font-weight: 800;
+    letter-spacing: 2px;
     text-transform: uppercase;
     margin-top: 0;
+    cursor: pointer;
+    transition: transform 120ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, background 160ms ease-out, opacity 160ms ease-out;
+}
+
+.base-btn:hover {
+    border-color: rgba(160, 255, 255, 0.32);
+    box-shadow: 0 0 18px rgba(90, 255, 255, 0.10);
+    transform: translateY(-1px);
+}
+
+.base-btn:active {
+    transform: translateY(0px);
+}
+
+.base-btn.primary {
+    border-color: rgba(255, 170, 90, 0.26);
+    background:
+        linear-gradient(90deg, rgba(255, 170, 90, 0.14), rgba(255, 110, 70, 0.10)),
+        rgba(0, 0, 0, 0.16);
 }
 
 .base-btn[disabled] {
     opacity: 0.45;
     cursor: not-allowed;
     filter: grayscale(0.6);
+    transform: none;
+    box-shadow: none;
 }
 
 .base-btn .cost {
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    color: rgba(255, 215, 0, 0.95);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-weight: 900;
+    color: rgba(255, 215, 0, 0.96);
     text-transform: none;
+    letter-spacing: 1px;
+}
+
+.base-upgrade-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
+}
+
+.base-upgrade-title {
+    font-size: 0.82rem;
+    letter-spacing: 2px;
+}
+
+.base-upgrade-desc {
+    font-size: 0.70rem;
+    color: rgba(220, 245, 255, 0.58);
+    letter-spacing: 0.3px;
+    text-transform: none;
+    font-weight: 700;
 }
 
 .addon-slots {
@@ -877,15 +990,16 @@ body {
 }
 
 .addon-slot {
-    width: 120px;
-    padding: 8px 10px;
-    border-radius: 10px;
-    border: 1px dashed rgba(160, 220, 255, 0.25);
-    background: rgba(0, 0, 0, 0.18);
-    font-family: 'Courier New', monospace;
+    width: 160px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px dashed rgba(160, 220, 255, 0.22);
+    background: rgba(0, 0, 0, 0.14);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     display: flex;
     justify-content: space-between;
     gap: 8px;
+    color: rgba(235, 250, 255, 0.86);
 }
 
 .addon-slot.empty {
@@ -902,27 +1016,33 @@ body {
 }
 
 .base-hint {
-    font-size: 0.78rem;
+    font-size: 0.70rem;
     color: rgba(200, 230, 255, 0.66);
     letter-spacing: 0.5px;
 }
 
-@media (min-width: 820px) {
-    .base-sections { grid-template-columns: 1fr 1fr; }
-    .base-grid { grid-template-columns: 1fr 1fr; }
-}
-
-button {
-    background: #06c;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 5px;
+.base-resume {
+    border: 1px solid rgba(140, 250, 255, 0.22);
+    background:
+        linear-gradient(90deg, rgba(0, 255, 255, 0.16), rgba(0, 136, 255, 0.16)),
+        rgba(0, 0, 0, 0.14);
+    color: rgba(240, 252, 255, 0.98);
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-transform: uppercase;
     cursor: pointer;
-    font-size: 1.1rem;
-    margin-top: 20px;
+    box-shadow: 0 0 22px rgba(90, 255, 255, 0.10);
 }
 
-button:hover {
-    background: #08f;
+.base-resume:hover {
+    border-color: rgba(160, 255, 255, 0.34);
+    box-shadow: 0 0 30px rgba(90, 255, 255, 0.14);
 }
+
+@media (min-width: 820px) {
+    .base-sections { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* Avoid global <button> styling; each UI surface styles its own buttons. */

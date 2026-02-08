@@ -153,8 +153,15 @@ export class Game {
             // Slightly lifted, more saturated deep-space so silhouettes read.
             sky: 0x101a3a,
             fog: 0x0b1533,
-            // Brighter rock range; face shading will still add depth.
-            asteroidPalette: [0x7c86a3, 0x8a7a84, 0x6b8f92, 0x8b8a6c],
+            // Rock range (slightly brighter + warmer variety so asteroids don't read as the same gray blob).
+            asteroidPalette: [
+                0x9aa6b2, // light slate
+                0x7f8c99, // steel
+                0x8e7b6a, // warm stone
+                0x6f7f86, // blue gray
+                0x7a6e63, // brown gray
+                0x6f8a7d  // mossy gray
+            ],
             station: { hull: 0xa6adb8, dark: 0x1b1f2a, light: 0x66ccff },
             ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0x66ccff }
         };
@@ -476,15 +483,23 @@ export class Game {
         this.scene.add(light);
     }
 
-    _voxLit({ color, map = null, emissive = 0x000000, emissiveIntensity = 0.0 } = {}) {
+    _voxLit({
+        color,
+        map = null,
+        emissive = 0x000000,
+        emissiveIntensity = 0.0,
+        metalness = 0.0,
+        roughness = 1.0,
+        flatShading = true
+    } = {}) {
         const mat = new THREE.MeshStandardMaterial({
             color,
             map: map ?? null,
             emissive,
             emissiveIntensity,
-            metalness: 0.0,
-            roughness: 1.0,
-            flatShading: true,
+            metalness,
+            roughness,
+            flatShading,
             vertexColors: true
         });
         return mat;
@@ -547,10 +562,10 @@ export class Game {
         // Pre-bake a handful of voxel asteroid geometries; reuse them for spawns.
         if (!this._voxelAsteroidVariants) {
             this._voxelAsteroidVariants = [];
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < 16; i++) {
                 const rng = mulberry32(0xdecafbad + i * 1013);
                 const filled = new Set();
-                const r = 2 + Math.floor(rng() * 4); // 2..5 voxels
+                const r = 2 + Math.floor(rng() * 6); // 2..7 voxels
                 addSphere(filled, r, { hollow: false, jitter: 1.25, rng });
                 // Chip away a bit to make it rock-like.
                 for (const k of Array.from(filled)) {
@@ -583,17 +598,34 @@ export class Game {
         // Create asteroids
         const asteroidRange = 2200 * this.worldScale;
         for (let i = 0; i < 320; i++) {
-            const variant = this._voxelAsteroidVariants[i % this._voxelAsteroidVariants.length];
-            const asteroidColor = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
+            const variant = this._voxelAsteroidVariants[Math.floor(Math.random() * this._voxelAsteroidVariants.length)];
+            const baseColorHex = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
+            const baseColor = new THREE.Color(baseColorHex);
+            // Small per-instance variation so the belt doesn't look stamped.
+            baseColor.offsetHSL(
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.18,
+                (Math.random() - 0.5) * 0.14
+            );
+            baseColor.multiplyScalar(0.95 + Math.random() * 0.35);
             const material = this._voxLit({
-                color: asteroidColor,
+                color: baseColor,
                 map: this._voxelTextures.rock,
-                emissive: 0x0b1633,
-                emissiveIntensity: 0.10
+                // Slight self-glow so they don't read as crushed blacks in the fog.
+                emissive: baseColor.clone().multiplyScalar(0.10),
+                emissiveIntensity: 0.12 + Math.random() * 0.16,
+                roughness: 0.95,
+                metalness: 0.02
             });
 
             const asteroid = new THREE.Mesh(variant.geo, material);
-            const scale = (1.2 + Math.random() * 7.5) * this.worldScale;
+            // Size distribution: many small rocks, fewer big boulders.
+            const ws = this.worldScale;
+            const minS = 0.8 * ws;
+            const maxS = 16.0 * ws;
+            const u = Math.random();
+            let scale = minS + Math.pow(u, 2.35) * (maxS - minS);
+            if (Math.random() < 0.025) scale *= 1.55; // rare big boulders
             asteroid.scale.set(scale, scale, scale);
             
             asteroid.position.set(

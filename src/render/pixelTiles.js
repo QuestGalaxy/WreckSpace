@@ -31,7 +31,7 @@ function rgb01ToStyle({ r, g, b }, a = 1) {
  *   base: number,
  *   dark: number,
  *   light: number,
- *   kind: 'panels' | 'rock' | 'stripes'
+ *   kind: 'panels' | 'rock' | 'rockBlob' | 'stripes'
  * }} spec
  */
 export function createPixelTileTexture(spec) {
@@ -80,6 +80,47 @@ export function createPixelTileTexture(spec) {
       const y = (i * 5 + 1) % size;
       ctx.fillRect(x, y, 1, 1);
     }
+  } else if (spec.kind === 'rockBlob') {
+    // Low-frequency "blob" rock: big shapes, low contrast.
+    // This reads as material without overpowering voxel silhouette.
+    const fill = (c, a = 1) => {
+      ctx.fillStyle = rgb01ToStyle(c, a);
+    };
+
+    // A few big soft blobs: light and dark.
+    const blobCount = 6 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < blobCount; i++) {
+      const t = Math.random();
+      const c = t > 0.66 ? light : (t < 0.33 ? dark : base);
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = (size * 0.22) + Math.random() * (size * 0.22);
+      fill(c, 1);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // A little edge breakup so it still feels pixel-y.
+      fill(dark, 0.55);
+      const bites = 4 + Math.floor(Math.random() * 4);
+      for (let b = 0; b < bites; b++) {
+        const bx = x + (Math.random() - 0.5) * r * 1.2;
+        const by = y + (Math.random() - 0.5) * r * 1.2;
+        ctx.fillRect(Math.floor(bx) % size, Math.floor(by) % size, 1, 1);
+      }
+    }
+
+    // Subtle dither to avoid perfectly flat areas.
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (Math.random() < 0.06) {
+          const c = Math.random() < 0.5 ? light : dark;
+          ctx.fillStyle = rgb01ToStyle(c, 0.55);
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
   } else if (spec.kind === 'stripes') {
     // Industrial warning stripes.
     for (let i = -size; i < size * 2; i += 4) {
@@ -108,4 +149,3 @@ export function createPixelTileTexture(spec) {
   tex.needsUpdate = true;
   return tex;
 }
-

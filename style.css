@@ -181,6 +181,50 @@ body {
     margin-top: 8px;
 }
 
+.hangar-mode {
+    display: flex;
+    gap: 8px;
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 255, 255, 0.22);
+    background: linear-gradient(135deg, rgba(8, 16, 30, 0.64) 0%, rgba(6, 10, 18, 0.40) 100%);
+    box-shadow: inset 0 0 18px rgba(0, 255, 255, 0.05);
+}
+
+.hangar-mode-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.hangar-mode-opt input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.hangar-mode-opt span {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 10px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(200, 230, 255, 0.75);
+    border: 1px solid rgba(160, 220, 255, 0.10);
+    transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.hangar-mode-opt input:checked + span {
+    color: rgba(225, 250, 255, 0.96);
+    border-color: rgba(0, 255, 255, 0.55);
+    background: linear-gradient(90deg, rgba(0, 255, 255, 0.14), rgba(0, 136, 255, 0.12));
+    box-shadow: 0 0 18px rgba(0, 255, 255, 0.10);
+}
+
 .hangar-select {
     background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(0, 136, 255, 0.14));
     border: 1px solid rgba(0, 255, 255, 0.6);
@@ -309,9 +353,10 @@ body {
 }
 
 /* Specific colors for different stats */
-.stat-row.power .stat-value-bar { background: linear-gradient(90deg, #ff4444, #ff8888); box-shadow: 0 0 10px rgba(255, 68, 68, 0.5); }
+.stat-row.hull .stat-value-bar { background: linear-gradient(90deg, #44ff44, #88ff88); box-shadow: 0 0 10px rgba(68, 255, 68, 0.5); }
 .stat-row.speed .stat-value-bar { background: linear-gradient(90deg, #44ff44, #88ff88); box-shadow: 0 0 10px rgba(68, 255, 68, 0.5); }
 .stat-row.storage .stat-value-bar { background: linear-gradient(90deg, #ffaa00, #ffdd44); box-shadow: 0 0 10px rgba(255, 170, 0, 0.5); }
+.stat-row.warp .stat-value-bar { background: linear-gradient(90deg, #7a7dff, #66ccff); box-shadow: 0 0 10px rgba(102, 204, 255, 0.5); }
 
 .card-desc {
     font-size: 0.85rem;
@@ -661,6 +706,145 @@ body {
 
 #base-menu {
     background: rgba(0, 20, 40, 0.9);
+}
+
+.base-menu-wrap {
+    width: min(920px, calc(100vw - 30px));
+    padding: 18px 18px 14px 18px;
+    border: 1px solid rgba(0, 255, 255, 0.25);
+    border-radius: 12px;
+    box-shadow: 0 0 24px rgba(0, 255, 255, 0.12), inset 0 0 24px rgba(0, 255, 255, 0.06);
+    background: linear-gradient(135deg, rgba(8, 16, 30, 0.88) 0%, rgba(6, 10, 18, 0.70) 100%);
+}
+
+.base-wallet {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin: 8px 0 16px 0;
+}
+
+.wallet-item {
+    font-family: 'Courier New', monospace;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(160, 220, 255, 0.18);
+    padding: 8px 10px;
+    border-radius: 10px;
+    min-width: 140px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.wallet-label {
+    color: rgba(200, 230, 255, 0.75);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.75rem;
+}
+
+.base-sections {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+
+.base-section {
+    width: 100%;
+    border: 1px solid rgba(160, 220, 255, 0.16);
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.base-section-title {
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(220, 255, 255, 0.85);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.base-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.base-btn {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: linear-gradient(90deg, rgba(0, 255, 255, 0.10), rgba(0, 136, 255, 0.12));
+    border: 1px solid rgba(0, 255, 255, 0.35);
+    color: rgba(235, 250, 255, 0.95);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 0;
+}
+
+.base-btn[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+}
+
+.base-btn .cost {
+    font-family: 'Courier New', monospace;
+    font-weight: 800;
+    color: rgba(255, 215, 0, 0.95);
+    text-transform: none;
+}
+
+.addon-slots {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.addon-slot {
+    width: 120px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px dashed rgba(160, 220, 255, 0.25);
+    background: rgba(0, 0, 0, 0.18);
+    font-family: 'Courier New', monospace;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.addon-slot.empty {
+    opacity: 0.55;
+}
+
+.base-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.base-hint {
+    font-size: 0.78rem;
+    color: rgba(200, 230, 255, 0.66);
+    letter-spacing: 0.5px;
+}
+
+@media (min-width: 820px) {
+    .base-sections { grid-template-columns: 1fr 1fr; }
+    .base-grid { grid-template-columns: 1fr 1fr; }
 }
 
 button {

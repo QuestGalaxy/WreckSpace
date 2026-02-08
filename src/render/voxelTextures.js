@@ -21,6 +21,21 @@ export function createVoxelTextures() {
       dark: 0x5e6577,
       light: 0xb1b7c8
     }),
+    // Lower-contrast rock: keeps "material" feel without overpowering voxel readability (esp. on planets).
+    rockSoft: createPixelTileTexture({
+      kind: 'rock',
+      base: 0x8f95a5,
+      dark: 0x858b9a,
+      light: 0x9aa0b1
+    }),
+    // Even lower-frequency planet rock: larger shapes, minimal repetition.
+    rockBlob: createPixelTileTexture({
+      kind: 'rockBlob',
+      size: 32,
+      base: 0x8f95a5,
+      dark: 0x848a99,
+      light: 0x9aa0b1
+    }),
     stripes: createPixelTileTexture({
       kind: 'stripes',
       base: 0xffcc44,
@@ -29,4 +44,3 @@ export function createVoxelTextures() {
     })
   };
 }
-

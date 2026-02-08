@@ -24,7 +24,6 @@ export class LootSystem {
    */
   update(dtSec, nowSec) {
     this.updateLoot(dtSec, nowSec);
-    this.checkDeposit();
   }
 
   /**
@@ -44,6 +43,12 @@ export class LootSystem {
     if (doLayout) this._markerLayoutAcc = 0;
 
     for (const [entityId, meta] of g.world.loot) {
+      // Expire ephemeral loot (test area hit-drops).
+      if (meta?.expiresAtSec != null && nowSec > meta.expiresAtSec) {
+        this._despawnLootEntity(entityId);
+        continue;
+      }
+
       const t = g.world.transform.get(entityId);
       const v = g.world.velocity.get(entityId);
       const m = g.world.lootMotion.get(entityId);
@@ -72,13 +77,15 @@ export class LootSystem {
       const dz = playerT.z - t.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       // Make pickups feel generous: pull from farther and collect sooner.
-      const magnetRange = 90 * ws;
+      const magnetRange = g.magnetDerived?.range ?? 0;
       const collectRange = 12 * ws;
 
-      if (dist < magnetRange && dist > 0.0001) {
+      if (magnetRange > 0 && dist < magnetRange && dist > 0.0001) {
         const inv = 1 / dist;
         const pullFactor = 1 - dist / magnetRange;
-        const magnetStrength = pullFactor * 3.5 * k;
+        const stacks = typeof g.countAddon === 'function' ? g.countAddon('magnet') : 0;
+        const stackMul = 1 + Math.max(0, stacks - 1) * 0.25;
+        const magnetStrength = pullFactor * 3.5 * stackMul * k;
         t.x += dx * inv * magnetStrength;
         t.y += dy * inv * magnetStrength;
         t.z += dz * inv * magnetStrength;
@@ -149,48 +156,60 @@ export class LootSystem {
     }
   }
 
-  collectLootEntity(entityId, value) {
+  _despawnLootEntity(entityId) {
     const g = this.game;
-    if (g.stats.storage >= g.stats.maxStorage) {
-      g.showMessage('Storage Full! Return to base.');
-      return;
-    }
-
-    // Remove simulation entity first; mesh may be pooled.
-    g.world.removeEntity(entityId);
-
-    g.stats.storage += 1;
-    g.stats.loot += value;
-    g.soundManager.playCollect();
     const lootObj = g.renderRegistry.get(entityId);
+    g.world.removeEntity(entityId);
     if (lootObj) {
       g.scene.remove(lootObj);
       if (g.spawner?.releaseLoot) g.spawner.releaseLoot(lootObj);
-    }
-    g.updateHudStats();
-  }
-
-  checkDeposit() {
-    const g = this.game;
-    if (!g.playerEntityId || !g.baseStation) return;
-    const ws = g.worldScale ?? 1;
-    const t = g.world.transform.get(g.playerEntityId);
-    if (!t) return;
-    const dx = t.x - g.baseStation.position.x;
-    const dy = t.y - g.baseStation.position.y;
-    const dz = t.z - g.baseStation.position.z;
-    if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 30 * ws) {
-      if (g.stats.storage > 0) this.depositLoot();
+    } else {
+      g.renderRegistry?.unbind?.(entityId);
     }
   }
 
-  depositLoot() {
+  collectLootEntity(entityId, value) {
     const g = this.game;
-    g.isPaused = true;
-    if (g.hud) g.hud.setBaseMenuVisible(true);
-    g.stats.storage = 0;
-    g.soundManager.playDeposit();
-    g.showMessage('Loot deposited! Energy refilled.');
+    const meta = g.world.loot.get(entityId) ?? null;
+    if (!meta) return;
+
+    // Powerups: instant pickup, no cargo usage.
+    if (meta.type === 'powerup' && meta.powerupId) {
+      const lootObj = g.renderRegistry.get(entityId);
+      g.world.removeEntity(entityId);
+      if (lootObj) {
+        g.scene.remove(lootObj);
+        if (g.spawner?.releaseLoot) g.spawner.releaseLoot(lootObj);
+      } else {
+        g.renderRegistry?.unbind?.(entityId);
+      }
+      g.soundManager.playCollect();
+      g.activatePowerup(meta.powerupId);
+      return;
+    }
+
+    // Currency pickups fill cargo unless marked otherwise (e.g. test-area hit drops).
+    const usesCargo = !(meta.noCargo || meta.ephemeral);
+    if (usesCargo && (g.stats.cargoUsed ?? 0) >= (g.shipDerived?.cargoMax ?? 0)) {
+      g.showMessage('Cargo Full! Warp to base (F).');
+      return;
+    }
+
+    const lootObj = g.renderRegistry.get(entityId);
+    g.world.removeEntity(entityId);
+
+    if (meta.type === 'coin') g.stats.coin = (g.stats.coin ?? 0) + (meta.value ?? value ?? 0);
+    else if (meta.type === 'gem') g.stats.gem = (g.stats.gem ?? 0) + (meta.value ?? value ?? 0);
+
+    if (usesCargo) g.stats.cargoUsed = (g.stats.cargoUsed ?? 0) + 1;
+
+    g.soundManager.playCollect();
+    if (lootObj) {
+      g.scene.remove(lootObj);
+      if (g.spawner?.releaseLoot) g.spawner.releaseLoot(lootObj);
+    } else {
+      g.renderRegistry?.unbind?.(entityId);
+    }
     g.updateHudStats();
   }
 

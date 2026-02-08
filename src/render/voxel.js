@@ -90,6 +90,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
   const shadeTop = opts.shadeTop ?? 1.0;
   const shadeSide = opts.shadeSide ?? 0.82;
   const shadeBottom = opts.shadeBottom ?? 0.65;
+  const uvMode = opts.uvMode ?? 'perFace'; // 'perFace' | 'world'
+  const uvScale = opts.uvScale ?? 1.0; // in "UV units per voxel unit" when uvMode==='world'
 
   /** @type {number[]} */
   const positions = [];
@@ -100,7 +102,7 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
   /** @type {number[]} */
   const colors = [];
 
-  const pushFace = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, ny, nz) => {
+  const pushFace = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, ny, nz, faceId) => {
     // 2 triangles: a-b-c, a-c-d
     positions.push(
       ax, ay, az, bx, by, bz, cx, cy, cz,
@@ -108,15 +110,54 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
     );
     for (let i = 0; i < 6; i++) normals.push(nx, ny, nz);
 
-    // Simple 0..1 UV per voxel face. Each voxel face maps the full tile.
-    // a(0,0) b(0,1) c(1,1) d(1,0)
-    uvs.push(
-      0, 0, 0, 1, 1, 1,
-      0, 0, 1, 1, 1, 0
-    );
+    if (uvMode === 'world') {
+      // World-style UVs so texture spans across multiple voxels (reduces noisy repetition on large bodies).
+      // Mapping by face:
+      // - +/-X: u=z, v=y
+      // - +/-Y: u=x, v=z
+      // - +/-Z: u=x, v=y
+      const uva = _uvForFace(faceId, ax, ay, az);
+      const uvb = _uvForFace(faceId, bx, by, bz);
+      const uvc = _uvForFace(faceId, cx, cy, cz);
+      const uvd = _uvForFace(faceId, dx, dy, dz);
+      // 2 triangles: a-b-c, a-c-d
+      uvs.push(
+        uva.u, uva.v, uvb.u, uvb.v, uvc.u, uvc.v,
+        uva.u, uva.v, uvc.u, uvc.v, uvd.u, uvd.v
+      );
+    } else {
+      // Simple 0..1 UV per voxel face. Each voxel face maps the full tile.
+      // a(0,0) b(0,1) c(1,1) d(1,0)
+      uvs.push(
+        0, 0, 0, 1, 1, 1,
+        0, 0, 1, 1, 1, 0
+      );
+    }
 
     const shade = faceShading ? (ny === 1 ? shadeTop : (ny === -1 ? shadeBottom : shadeSide)) : 1.0;
     for (let i = 0; i < 6; i++) colors.push(shade, shade, shade);
+  };
+
+  const _uvForFace = (faceId, x, y, z) => {
+    // Normalize into voxel units first so uvScale is stable across voxelSize changes.
+    const inv = voxelSize > 0.000001 ? (1 / voxelSize) : 1;
+    const vx = x * inv;
+    const vy = y * inv;
+    const vz = z * inv;
+    let u = 0;
+    let v = 0;
+    if (faceId === 'px' || faceId === 'nx') {
+      u = vz;
+      v = vy;
+    } else if (faceId === 'py' || faceId === 'ny') {
+      u = vx;
+      v = vz;
+    } else {
+      // pz/nz
+      u = vx;
+      v = vy;
+    }
+    return { u: u * uvScale, v: v * uvScale };
   };
 
   const dirs = [
@@ -149,7 +190,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx + hs, cy + hs, cz - hs,
           cx + hs, cy + hs, cz + hs,
           cx + hs, cy - hs, cz + hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       } else if (d.face === 'nx') {
         pushFace(
@@ -157,7 +199,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx - hs, cy + hs, cz + hs,
           cx - hs, cy + hs, cz - hs,
           cx - hs, cy - hs, cz - hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       } else if (d.face === 'py') {
         pushFace(
@@ -165,7 +208,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx - hs, cy + hs, cz + hs,
           cx + hs, cy + hs, cz + hs,
           cx + hs, cy + hs, cz - hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       } else if (d.face === 'ny') {
         pushFace(
@@ -173,7 +217,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx - hs, cy - hs, cz - hs,
           cx + hs, cy - hs, cz - hs,
           cx + hs, cy - hs, cz + hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       } else if (d.face === 'pz') {
         pushFace(
@@ -181,7 +226,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx + hs, cy - hs, cz + hs,
           cx + hs, cy + hs, cz + hs,
           cx - hs, cy + hs, cz + hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       } else if (d.face === 'nz') {
         pushFace(
@@ -189,7 +235,8 @@ export function buildVoxelSurfaceGeometry(filled, opts = {}) {
           cx - hs, cy - hs, cz - hs,
           cx - hs, cy + hs, cz - hs,
           cx + hs, cy + hs, cz - hs,
-          d.nx, d.ny, d.nz
+          d.nx, d.ny, d.nz,
+          d.face
         );
       }
     }

@@ -18,9 +18,13 @@ function startGame(selectedShip) {
         hangar.dispose();
         hangar = null;
     }
+
+    const mode =
+        document.querySelector('input[name="world-mode"]:checked')?.value ??
+        'main';
     
     // Initialize the 3D Game
-    game = new Game(selectedShip, { hud: hudController });
+    game = new Game(selectedShip, { hud: hudController, mode });
     game.init();
 }
 

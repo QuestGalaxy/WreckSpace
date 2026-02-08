@@ -25,10 +25,10 @@
                             <div id="ship-class" class="ship-class">Class</div>
                         </div>
 
-                        <div class="stat-row power">
-                            <div class="stat-label"><span>Firepower</span> <span id="ship-power">0</span></div>
+                        <div class="stat-row hull">
+                            <div class="stat-label"><span>Hull</span> <span id="ship-hull">0</span></div>
                             <div class="stat-track">
-                                <div id="ship-power-bar" class="stat-value-bar" style="width: 0%"></div>
+                                <div id="ship-hull-bar" class="stat-value-bar" style="width: 0%"></div>
                             </div>
                         </div>
 
@@ -46,12 +46,29 @@
                             </div>
                         </div>
 
+                        <div class="stat-row warp">
+                            <div class="stat-label"><span>Warp</span> <span id="ship-warp">0</span></div>
+                            <div class="stat-track">
+                                <div id="ship-warp-bar" class="stat-value-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
                         <p id="ship-desc" class="card-desc"></p>
 
                         <div class="hangar-actions">
                             <button id="ship-select" class="hangar-select">Launch</button>
-                            <div class="hangar-hint">← → switch, Enter launch, swipe</div>
+                            <div class="hangar-mode" role="radiogroup" aria-label="Launch mode">
+                                <label class="hangar-mode-opt">
+                                    <input type="radio" name="world-mode" value="main" checked>
+                                    <span>Main World</span>
+                                </label>
+                                <label class="hangar-mode-opt">
+                                    <input type="radio" name="world-mode" value="testArea">
+                                    <span>Tutorial/Test Area</span>
+                                </label>
+                            </div>
                         </div>
+                        <div class="hangar-hint">← → switch, Enter launch, swipe</div>
                     </div>
 
                     <button id="ship-next" class="hangar-nav" aria-label="Next ship">›</button>
@@ -73,32 +90,43 @@
                 <div class="hud-row">
                     <div class="hud-label">SHIELD</div>
                     <div class="bar-container">
-                        <div id="energy-bar" class="bar-fill"></div>
+                        <div id="shield-bar" class="bar-fill"></div>
                     </div>
-                    <div id="energy-val" class="hud-value">100%</div>
+                    <div id="shield-val" class="hud-value">0%</div>
+                </div>
+                <div class="hud-row">
+                    <div class="hud-label">HULL</div>
+                    <div class="bar-container">
+                        <div id="hull-bar" class="bar-fill"></div>
+                    </div>
+                    <div id="hull-val" class="hud-value">100%</div>
                 </div>
             </div>
 
             <!-- Top Right: Economy & Cargo -->
             <div id="hud-top-right" class="hud-panel">
                 <div class="hud-row right-align">
-                    <div class="hud-value money" id="loot-val">0</div>
-                    <div class="hud-label">CREDITS</div>
+                    <div class="hud-value money" id="coin-val">0</div>
+                    <div class="hud-label">COIN</div>
                 </div>
                 <div class="hud-row right-align">
-                    <div class="hud-value" id="storage-text"><span id="storage-val">0</span>/<span id="max-storage-val">50</span></div>
+                    <div class="hud-value money" id="gem-val">0</div>
+                    <div class="hud-label">GEM</div>
+                </div>
+                <div class="hud-row right-align">
+                    <div class="hud-value" id="storage-text"><span id="cargo-used-val">0</span>/<span id="cargo-max-val">50</span></div>
                     <div class="hud-label">CARGO</div>
                 </div>
                 <div class="bar-container small">
-                    <div id="storage-bar" class="bar-fill warning"></div>
+                    <div id="cargo-bar" class="bar-fill warning"></div>
                 </div>
             </div>
 
             <!-- Bottom Left: Systems / Hints -->
             <div id="hud-bottom-left" class="hud-panel">
-                 <div class="system-status">SYSTEMS ONLINE</div>
+                <div class="system-status">SYSTEMS ONLINE</div>
                  <div id="controls-hint" class="controls-hint">
-                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | SPACE: Fire | SHIFT: Dodge
+                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | SPACE: Fire | F: Warp to Base
                 </div>
             </div>
 
@@ -115,9 +143,50 @@
 
         <!-- Base Station Menu -->
         <div id="base-menu" class="screen hidden">
-            <h2>Base Station</h2>
-            <p>Loot deposited! Energy refilled.</p>
-            <button id="resume-btn">Resume Exploration</button>
+            <div class="base-menu-wrap">
+                <h2>Base Station</h2>
+
+                <div class="base-wallet">
+                    <div class="wallet-item"><span class="wallet-label">Coin</span> <span id="base-coin">0</span></div>
+                    <div class="wallet-item"><span class="wallet-label">Gem</span> <span id="base-gem">0</span></div>
+                    <div class="wallet-item"><span class="wallet-label">Weapon Lv</span> <span id="base-weapon-level">1</span></div>
+                </div>
+
+                <div class="base-sections">
+                    <div class="base-section">
+                        <div class="base-section-title">Ship Upgrades (Coin)</div>
+                        <div class="base-grid">
+                            <button class="base-btn" data-upgrade-ship="speed">Speed <span class="cost" id="cost-ship-speed">-</span></button>
+                            <button class="base-btn" data-upgrade-ship="hull">Hull <span class="cost" id="cost-ship-hull">-</span></button>
+                            <button class="base-btn" data-upgrade-ship="cargo">Cargo <span class="cost" id="cost-ship-cargo">-</span></button>
+                            <button class="base-btn" data-upgrade-ship="warp">Warp <span class="cost" id="cost-ship-warp">-</span></button>
+                        </div>
+                    </div>
+
+                    <div class="base-section">
+                        <div class="base-section-title">Weapon Upgrades (Coin)</div>
+                        <div class="base-grid">
+                            <button class="base-btn" data-upgrade-weapon="damage">Damage <span class="cost" id="cost-weapon-damage">-</span></button>
+                            <button class="base-btn" data-upgrade-weapon="fireRate">Fire Rate <span class="cost" id="cost-weapon-fireRate">-</span></button>
+                            <button class="base-btn" data-craft-weapon-level="1">Craft Weapon Level <span class="cost" id="cost-weapon-level">-</span></button>
+                        </div>
+                    </div>
+
+                    <div class="base-section">
+                        <div class="base-section-title">Addons (Gem) | Slots: <span id="addon-slots-text">0/3</span></div>
+                        <div class="base-grid">
+                            <button class="base-btn" data-buy-addon="magnet">Magnet <span class="cost" id="cost-addon-magnet">-</span></button>
+                            <button class="base-btn" data-buy-addon="shield">Shield <span class="cost" id="cost-addon-shield">-</span></button>
+                        </div>
+                        <div class="addon-slots" id="addon-slots"></div>
+                    </div>
+                </div>
+
+                <div class="base-actions">
+                    <div class="base-hint">F: Warp to base | Spend Coin/Gem here only</div>
+                    <button id="resume-btn">Resume Exploration</button>
+                </div>
+            </div>
         </div>
     </div>
 

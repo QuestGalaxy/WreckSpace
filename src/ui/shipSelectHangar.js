@@ -43,12 +43,14 @@ export class ShipSelectHangar {
       name: document.getElementById('ship-name'),
       klass: document.getElementById('ship-class'),
       desc: document.getElementById('ship-desc'),
-      power: document.getElementById('ship-power'),
+      hull: document.getElementById('ship-hull'),
       speed: document.getElementById('ship-speed'),
-      storage: document.getElementById('ship-storage'),
-      powerBar: document.getElementById('ship-power-bar'),
+      cargo: document.getElementById('ship-storage'),
+      warp: document.getElementById('ship-warp'),
+      hullBar: document.getElementById('ship-hull-bar'),
       speedBar: document.getElementById('ship-speed-bar'),
-      storageBar: document.getElementById('ship-storage-bar')
+      cargoBar: document.getElementById('ship-storage-bar'),
+      warpBar: document.getElementById('ship-warp-bar')
     };
 
     // Visual constants tuned to match the voxel game.
@@ -116,7 +118,13 @@ export class ShipSelectHangar {
     this._onPointerDown = (e) => {
       // Don't hijack clicks on UI controls.
       const target = /** @type {any} */ (e.target);
-      if (target && typeof target.closest === 'function' && target.closest('button')) return;
+      if (
+        target &&
+        typeof target.closest === 'function' &&
+        target.closest('button, input, label, .hangar-mode')
+      ) {
+        return;
+      }
 
       this._pointerDown = true;
       this._dragStartX = e.clientX;
@@ -314,29 +322,36 @@ export class ShipSelectHangar {
     // Flavor class
     let shipClass = 'Standard Class';
     if (ship.id === 'scout') shipClass = 'Reconnaissance Class';
-    else if (ship.id === 'interceptor') shipClass = 'Assault Class';
-    else if (ship.id === 'hauler') shipClass = 'Industrial Class';
+    else if (ship.id === 'balanced') shipClass = 'Standard Class';
+    else if (ship.id === 'miner') shipClass = 'Industrial Class';
 
     if (this.el.name) this.el.name.textContent = ship.name;
     if (this.el.klass) this.el.klass.textContent = shipClass;
     if (this.el.desc) this.el.desc.textContent = ship.description ?? '';
 
-    if (this.el.power) this.el.power.textContent = String(ship.weaponPower ?? 0);
+    if (this.el.hull) this.el.hull.textContent = String(ship.hull ?? 0);
     if (this.el.speed) this.el.speed.textContent = String(ship.speed ?? 0);
-    if (this.el.storage) this.el.storage.textContent = String(ship.storage ?? 0);
+    if (this.el.cargo) this.el.cargo.textContent = String(ship.cargo ?? 0);
+    if (this.el.warp) this.el.warp.textContent = String(ship.warpCooldownSec ?? 0);
 
-    const powerPct = ((ship.weaponPower ?? 0) / 25) * 100;
+    const hullPct = ((ship.hull ?? 0) / 200) * 100;
     const speedPct = ((ship.speed ?? 0) / 1.5) * 100;
-    const storagePct = ((ship.storage ?? 0) / 120) * 100;
+    const cargoPct = ((ship.cargo ?? 0) / 120) * 100;
+    // Lower cooldown is better: invert into a "bigger is better" bar.
+    const warpBase = 6;
+    const warpMax = 18;
+    const warpVal = ship.warpCooldownSec ?? warpMax;
+    const warpPct = (1 - (warpVal - warpBase) / Math.max(1e-6, warpMax - warpBase)) * 100;
 
     // Animate bars
     const setBar = (el, pct) => {
       if (!el) return;
       el.style.width = `${clamp(pct, 0, 100)}%`;
     };
-    setBar(this.el.powerBar, powerPct);
+    setBar(this.el.hullBar, hullPct);
     setBar(this.el.speedBar, speedPct);
-    setBar(this.el.storageBar, storagePct);
+    setBar(this.el.cargoBar, cargoPct);
+    setBar(this.el.warpBar, warpPct);
   }
 
   _tick(nowMs) {

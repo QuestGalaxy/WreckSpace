@@ -1,5 +1,29 @@
 import * as THREE from 'three';
 
+function clamp(x, a, b) {
+  return Math.max(a, Math.min(b, x));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpHex(a, b, t) {
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  const rr = Math.round(lerp(ar, br, t));
+  const rg = Math.round(lerp(ag, bg, t));
+  const rb = Math.round(lerp(ab, bb, t));
+  return (rr << 16) | (rg << 8) | rb;
+}
+
+function scaleHex(h, s) {
+  const r = Math.round(clamp(((h >> 16) & 255) * s, 0, 255));
+  const g = Math.round(clamp(((h >> 8) & 255) * s, 0, 255));
+  const b = Math.round(clamp((h & 255) * s, 0, 255));
+  return (r << 16) | (g << 8) | b;
+}
+
 export class VfxSystem {
   /**
    * @param {import('../../game.js').Game} game
@@ -33,6 +57,16 @@ export class VfxSystem {
     this._smokeGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
     this._sparkGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
     this._fireballGeo = new THREE.BoxGeometry(1, 1, 1); // scaled per instance
+
+    /** @type {THREE.Mesh[]} */
+    this._hitGlowVoxelPool = [];
+    this._hitGlowVoxelPoolLimit = 900;
+    this._hitGlowVoxelGeo = new THREE.BoxGeometry(1, 1, 1);
+
+    // Scratch
+    this._tmpW = new THREE.Vector3();
+    this._tmpL = new THREE.Vector3();
+    this._tmpDir = new THREE.Vector3();
   }
 
   /**
@@ -206,18 +240,20 @@ export class VfxSystem {
     if (!g.particles) g.particles = [];
 
     let s = this._hitSparkPool.pop() ?? null;
+    const cinematic = (g?.hitFeedbackProfile ?? (g?.mode === 'testArea' ? 'cinematic' : 'subtle')) === 'cinematic';
+    const c = cinematic ? 0xffaa44 : 0x00ffff;
     if (!s) {
       s = new THREE.Mesh(
         this._smokeGeo,
         new THREE.MeshBasicMaterial({
-          color: 0x00ffff,
+          color: c,
           transparent: true,
           opacity: 0.5
         })
       );
     } else {
       s.visible = true;
-      s.material.color.setHex(0x00ffff);
+      s.material.color.setHex(c);
       s.material.opacity = 0.5;
     }
 
@@ -304,6 +340,33 @@ export class VfxSystem {
       } else if (p.userData.isEngineTrail) {
         p.scale.multiplyScalar(Math.pow(0.9, k));
         p.material.opacity *= Math.pow(0.9, k);
+      } else if (p.userData.isHitGlowVoxel) {
+        if (p.userData.velocity) p.position.addScaledVector(p.userData.velocity, k);
+        if (p.userData.velocity) p.userData.velocity.multiplyScalar(Math.pow(0.90, k));
+        const initialLife = p.userData.initialLife ?? null;
+        if (p.material && p.material.opacity != null && initialLife && initialLife > 0.0001) {
+          const lifeRatio = THREE.MathUtils.clamp(p.userData.life / initialLife, 0, 1);
+          const baseOpacity = p.userData.baseOpacity ?? 0.65;
+          // Quick snap then soft decay.
+          p.material.opacity = baseOpacity * Math.pow(lifeRatio, 1.25);
+        }
+        if (p.material && p.material.color && initialLife && initialLife > 0.0001) {
+          const lifeRatio = THREE.MathUtils.clamp(p.userData.life / initialLife, 0, 1);
+          const prog = 1 - lifeRatio; // 0 -> start (hot), 1 -> end (cool)
+          const hot = p.userData.hotHex ?? 0xfff1c1;
+          const mid = p.userData.midHex ?? 0xff8a2a;
+          const cool = p.userData.coolHex ?? 0xff2a00;
+
+          let hex;
+          if (prog < 0.35) hex = lerpHex(hot, mid, prog / 0.35);
+          else hex = lerpHex(mid, cool, (prog - 0.35) / 0.65);
+
+          // Flicker: subtle brightness wobble, stronger at start.
+          const seed = p.userData.seed ?? 0;
+          const flick = 0.88 + 0.18 * Math.sin((nowSec * 26) + seed) + 0.06 * Math.sin((nowSec * 59) + seed * 2.13);
+          const flickT = THREE.MathUtils.lerp(1.0, flick, Math.pow(lifeRatio, 0.35));
+          p.material.color.setHex(scaleHex(hex, flickT));
+        }
       } else {
         // Dust physics: scale down
         p.scale.multiplyScalar(Math.pow(0.96, k));
@@ -348,6 +411,12 @@ export class VfxSystem {
             p.visible = false;
             p.userData = {};
             this._hitSparkPool.push(p);
+          }
+        } else if (kind === 'hitGlowVoxel') {
+          if (this._hitGlowVoxelPool.length < this._hitGlowVoxelPoolLimit) {
+            p.visible = false;
+            p.userData = {};
+            this._hitGlowVoxelPool.push(p);
           }
         }
       }
@@ -458,11 +527,179 @@ export class VfxSystem {
     const g = this.game;
     if (!g.particles) g.particles = [];
 
-    for (let i = 0; i < 3; i++) {
+    const cinematic = (g?.hitFeedbackProfile ?? (g?.mode === 'testArea' ? 'cinematic' : 'subtle')) === 'cinematic';
+    const count = cinematic ? 7 : 3;
+    for (let i = 0; i < count; i++) {
       this.spawnHitSpark(position);
     }
 
+    // Test area: add a tiny impact ring for extra "snap".
+    if (cinematic && g.scene && g.camera) {
+      const ws = g.worldScale ?? 1;
+      const ringGeo = new THREE.BoxGeometry(1, 1, 0.18);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xff8a2a,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.copy(position);
+      ring.lookAt(g.camera.position);
+      const baseScale = 2.2 * ws;
+      ring.scale.set(baseScale, baseScale, 1);
+      ring.userData = {
+        isShockwave: true,
+        baseScale,
+        expandSpeed: 0.11,
+        life: 14,
+        initialLife: 14
+      };
+      g.scene.add(ring);
+      g.particles.push(ring);
+    }
+
     if (g.hud) g.hud.crosshairPulseHit();
-    g.cameraShake = 0.3;
+    g.cameraShake = cinematic ? 0.55 : 0.3;
+  }
+
+  /**
+   * Localized "some voxels glow" effect around the impact cell.
+   * This is a rendering-only overlay (small additive cubes), so it works even though planets/asteroids
+   * are single meshes.
+   * @param {{ obj: any, hitWorldPos: THREE.Vector3, bulletVelWorld: THREE.Vector3, damage: number }} info
+   */
+  createVoxelHitGlow(info) {
+    const g = this.game;
+    const { obj, hitWorldPos, bulletVelWorld, damage } = info;
+    if (!g.scene || !obj) return;
+    const vox = obj.userData?.voxel ?? null;
+    if (!vox?.filled || vox.filled.size === 0) return;
+
+    obj.updateMatrixWorld(true);
+    this._tmpW.copy(hitWorldPos);
+    obj.worldToLocal(this._tmpW);
+
+    const cellLocal = (vox.voxelSizeOriginal ?? 1) * (vox.normScale ?? 1);
+    if (cellLocal <= 0.000001) return;
+
+    const cx = Math.round(this._tmpW.x / cellLocal);
+    const cy = Math.round(this._tmpW.y / cellLocal);
+    const cz = Math.round(this._tmpW.z / cellLocal);
+
+    const isPlanet = obj.userData?.type === 'planet';
+    const cinematic = (g?.hitFeedbackProfile ?? (g?.mode === 'testArea' ? 'cinematic' : 'subtle')) === 'cinematic';
+    const base = isPlanet ? (cinematic ? 10 : 6) : (cinematic ? 7 : 4);
+    const perDmg = isPlanet ? (cinematic ? 0.65 : 0.45) : (cinematic ? 0.45 : 0.30);
+    const max = isPlanet ? (cinematic ? 30 : 18) : (cinematic ? 18 : 12);
+    const want = clamp(Math.floor(base + (damage ?? 0) * perDmg), base, max);
+
+    /** @type {{k:string,d2:number}[]} */
+    const candidates = [];
+    const maxR = 3;
+    for (let r = 0; r <= maxR; r++) {
+      candidates.length = 0;
+      const r2 = r * r;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 > r2) continue;
+            const k = `${cx + dx},${cy + dy},${cz + dz}`;
+            if (!vox.filled.has(k)) continue;
+            candidates.push({ k, d2 });
+          }
+        }
+      }
+      if (candidates.length > 0) break;
+    }
+    if (candidates.length === 0) return;
+
+    candidates.sort((a, b) => a.d2 - b.d2);
+    const picks = candidates.slice(0, Math.min(want, candidates.length));
+
+    const ws = g.worldScale ?? 1;
+    const cellWorld = (obj.scale.x ?? 1) * cellLocal;
+    const cubeSize = THREE.MathUtils.clamp(cellWorld * 0.85, 0.6 * ws, 7.5 * ws);
+
+    const velN = (bulletVelWorld ? this._tmpL.copy(bulletVelWorld) : this._tmpL.set(0, 0, 1)).normalize();
+    const baseOpacity = THREE.MathUtils.clamp(0.50 + (damage ?? 0) * 0.018, 0.50, 0.98);
+    const life = (isPlanet ? 20 : 16) + Math.random() * (isPlanet ? 14 : 10);
+
+    // Fire palette: hot core -> orange -> deep red.
+    const hotHex = 0xfff1c1;
+    const midHex = 0xff8a2a;
+    const coolHex = 0xff2a00;
+
+    for (const p of picks) {
+      const [xs, ys, zs] = p.k.split(',');
+      const x = Number(xs);
+      const y = Number(ys);
+      const z = Number(zs);
+      this._tmpL.set(x * cellLocal, y * cellLocal, z * cellLocal);
+      this._tmpW.copy(this._tmpL);
+      obj.localToWorld(this._tmpW);
+
+      const m = this._acquireHitGlowVoxel();
+      m.position.copy(this._tmpW);
+      m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      m.scale.setScalar(cubeSize * (0.62 + Math.random() * 0.55));
+
+      // Gentle outward drift; direction biased away from center + bullet direction.
+      const dir = this._tmpDir.copy(this._tmpW).sub(obj.position).normalize();
+      dir.addScaledVector(velN, 0.65).normalize();
+
+      const speed = (isPlanet ? 0.75 : 1.1) * ws * (0.55 + Math.random() * 0.65);
+      m.userData = {
+        isHitGlowVoxel: true,
+        velocity: dir.multiplyScalar(speed),
+        life,
+        initialLife: life,
+        baseOpacity,
+        hotHex,
+        midHex,
+        coolHex,
+        seed: Math.random() * Math.PI * 2,
+        _poolKind: 'hitGlowVoxel'
+      };
+      if (m.material?.color?.setHex) m.material.color.setHex(hotHex);
+      g.scene.add(m);
+      if (!g.particles) g.particles = [];
+      g.particles.push(m);
+    }
+
+    // Add a small voxel-fire burst (1-3 cubes) at the exact hit point.
+    const burstN = clamp(Math.floor((cinematic ? 1 : 0) + (damage ?? 0) / (isPlanet ? 18 : 24)), 1, cinematic ? 3 : 2);
+    for (let i = 0; i < burstN; i++) {
+      const radius = cubeSize * (0.7 + Math.random() * 0.55);
+      const fireball = this.spawnFireball(hitWorldPos, radius, midHex, true);
+      // Bias velocity along shot direction + some scatter.
+      this._tmpDir.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize();
+      this._tmpDir.addScaledVector(velN, 0.75).normalize();
+      fireball.userData.velocity.copy(this._tmpDir).multiplyScalar((isPlanet ? 0.9 : 1.2) * ws * (0.7 + Math.random() * 0.9));
+      fireball.userData.initialLife = (fireball.userData.initialLife ?? 40) * (cinematic ? 0.9 : 0.75);
+      fireball.userData.life = fireball.userData.initialLife;
+    }
+  }
+
+  _acquireHitGlowVoxel() {
+    const m = this._hitGlowVoxelPool.pop() ?? null;
+    if (m) {
+      m.visible = true;
+      if (m.material) {
+        m.material.opacity = 0.7;
+        m.material.needsUpdate = true;
+      }
+      return m;
+    }
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff8a2a,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    return new THREE.Mesh(this._hitGlowVoxelGeo, mat);
   }
 }

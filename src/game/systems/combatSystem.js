@@ -23,6 +23,10 @@ export class CombatSystem {
     this._noseWorld = new THREE.Vector3();
     this._camSpace = new THREE.Vector3();
     this._hitLocal = new THREE.Vector3();
+    this._prevBulletPos = new THREE.Vector3();
+    this._seg = new THREE.Vector3();
+    this._toCenter = new THREE.Vector3();
+    this._closest = new THREE.Vector3();
 
     // Screen-space crosshair smoothing (avoid jitter on distant targets + camera shake).
     this._crosshairX = null;
@@ -217,7 +221,8 @@ export class CombatSystem {
   shoot() {
     const g = this.game;
     const now = Date.now();
-    if (g.isPaused || g.stats.energy <= 0 || now - g.lastShotTime < g.fireRate) return;
+    const fireRateMs = g.weaponDerived?.fireRateMs ?? 600;
+    if (g.isPaused || now - g.lastShotTime < fireRateMs) return;
     if (!g.playerEntityId) return;
     if (!g.scene) return;
     const pt = g.world.transform.get(g.playerEntityId);
@@ -238,36 +243,42 @@ export class CombatSystem {
     g.lastShotTime = now;
     if (g.hud) g.hud.crosshairPulseFiring();
 
-    // Voxel-ish laser: 1-voxel thick beam with a bright core + soft additive glow.
-    const beamLen = 6 * vox;
-    const beamThick = 1 * vox;
+    const isTestArea = g?.mode === 'testArea';
+    let bullet = null;
+    if (isTestArea && typeof g.createVoxelBulletMesh === 'function') {
+      bullet = g.createVoxelBulletMesh();
+    } else {
+      // Voxel-ish laser: 1-voxel thick beam with a bright core + soft additive glow.
+      const beamLen = 6 * vox;
+      const beamThick = 1 * vox;
 
-    const laserGeo = new THREE.BoxGeometry(beamThick, beamThick, beamLen);
-    // Origin at the back of the beam so it starts at the ship nose.
-    laserGeo.translate(0, 0, beamLen * 0.5);
-    const laserMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending
-    });
-    const bullet = new THREE.Mesh(laserGeo, laserMat);
+      const laserGeo = new THREE.BoxGeometry(beamThick, beamThick, beamLen);
+      // Origin at the back of the beam so it starts at the ship nose.
+      laserGeo.translate(0, 0, beamLen * 0.5);
+      const laserMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending
+      });
+      bullet = new THREE.Mesh(laserGeo, laserMat);
 
-    const coreGeo = new THREE.BoxGeometry(beamThick * 0.42, beamThick * 0.42, beamLen * 1.02);
-    coreGeo.translate(0, 0, beamLen * 0.5);
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    bullet.add(new THREE.Mesh(coreGeo, coreMat));
+      const coreGeo = new THREE.BoxGeometry(beamThick * 0.42, beamThick * 0.42, beamLen * 1.02);
+      coreGeo.translate(0, 0, beamLen * 0.5);
+      const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      bullet.add(new THREE.Mesh(coreGeo, coreMat));
 
-    const glowGeo = new THREE.BoxGeometry(beamThick * 1.8, beamThick * 1.8, beamLen * 1.1);
-    glowGeo.translate(0, 0, beamLen * 0.5);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x66ccff,
-      transparent: true,
-      opacity: 0.28,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-    bullet.add(new THREE.Mesh(glowGeo, glowMat));
+      const glowGeo = new THREE.BoxGeometry(beamThick * 1.8, beamThick * 1.8, beamLen * 1.1);
+      glowGeo.translate(0, 0, beamLen * 0.5);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0x66ccff,
+        transparent: true,
+        opacity: 0.28,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      bullet.add(new THREE.Mesh(glowGeo, glowMat));
+    }
 
     // Start exactly at the nose of the ship
     this._noseWorld.copy(this._noseOffset).applyQuaternion(this._playerQuat);
@@ -320,9 +331,7 @@ export class CombatSystem {
     // Feedback: Stronger Camera shake on fire
     g.cameraShake = 0.5;
 
-    // Energy cost per shot (simple baseline; can become data-driven later).
-    g.stats.energy = Math.max(0, g.stats.energy - g.shotEnergyCost);
-    g.updateHudStats();
+    // V1: no per-shot energy mechanic.
   }
 
   updateBullets(dtSec) {
@@ -334,6 +343,8 @@ export class CombatSystem {
 
     for (let i = g.bullets.length - 1; i >= 0; i--) {
       const b = g.bullets[i];
+      // Continuous collision: avoid tunneling through thin voxel shells.
+      this._prevBulletPos.copy(b.position);
       b.position.addScaledVector(b.userData.velocity, k);
       b.userData.life--;
 
@@ -353,23 +364,38 @@ export class CombatSystem {
       const checkEntity = (entityId) => {
         const t = g.world.transform.get(entityId);
         if (!t) return false;
-        const dx = bx - t.x;
-        const dy = by - t.y;
-        const dz = bz - t.z;
-        const dist2 = dx * dx + dy * dy + dz * dz;
         const obj = g.renderRegistry.get(entityId);
         if (!obj) return false;
 
         // Use geometry radius if it changed due to voxel carving.
         const geoR = obj.geometry?.boundingSphere?.radius ?? 1;
         const radius = (t.sx ?? 1) * geoR; // objects are uniformly scaled
-        if (dist2 > radius * radius) return false;
+        const r2 = radius * radius;
+
+        // Segment-sphere intersection via closest point.
+        this._seg.set(bx - this._prevBulletPos.x, by - this._prevBulletPos.y, bz - this._prevBulletPos.z);
+        const segLen2 = this._seg.lengthSq();
+        let tt = 0;
+        if (segLen2 > 0.0000001) {
+          this._toCenter.set(t.x - this._prevBulletPos.x, t.y - this._prevBulletPos.y, t.z - this._prevBulletPos.z);
+          tt = THREE.MathUtils.clamp(this._toCenter.dot(this._seg) / segLen2, 0, 1);
+        }
+        this._closest.set(
+          this._prevBulletPos.x + this._seg.x * tt,
+          this._prevBulletPos.y + this._seg.y * tt,
+          this._prevBulletPos.z + this._seg.z * tt
+        );
+        const dx = this._closest.x - t.x;
+        const dy = this._closest.y - t.y;
+        const dz = this._closest.z - t.z;
+        const dist2 = dx * dx + dy * dy + dz * dz;
+        if (dist2 > r2) return false;
 
         // Voxel-aware hit test so shots pass through carved holes.
         const vox = obj.userData?.voxel;
         if (vox?.filled && vox.filled.size > 0) {
           obj.updateMatrixWorld(true);
-          this._hitLocal.copy(b.position);
+          this._hitLocal.copy(this._closest);
           obj.worldToLocal(this._hitLocal);
           const cellLocal = (vox.voxelSizeOriginal ?? 1) * (vox.normScale ?? 1);
           if (cellLocal > 0.000001) {
@@ -391,8 +417,13 @@ export class CombatSystem {
           }
         }
 
-          // Subtle hit flash
-          if (obj.material) {
+          const dmg = (g.weaponDerived?.damage ?? 1) * (g.powerupDerived?.damageMul ?? 1);
+
+          // Localized impact glow (avoid flashing the entire planet).
+          if (g.vfx?.createVoxelHitGlow && obj.userData?.type === 'planet') {
+            g.vfx.createVoxelHitGlow({ obj, hitWorldPos: this._closest, bulletVelWorld: b.userData.velocity, damage: dmg });
+          } else if (obj.material) {
+            // Subtle hit flash (non-planet, or fallback)
             const isPlanet = obj.userData.type === 'planet';
             const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
             const saved = mats.map((m) => ({
@@ -417,13 +448,19 @@ export class CombatSystem {
             }, 60);
           }
 
-          g.vfx.createHitEffect(b.position);
-          g.soundManager.playHit();
-          const h = g.world.damage(entityId, g.shipData.weaponPower);
+          g.vfx.createHitEffect(this._closest);
+          g.soundManager.playHit({
+            profile: g?.hitFeedbackProfile ?? null,
+            // Back-compat: keep the old signal too.
+            isTestArea: g?.mode === 'testArea',
+            kind: obj?.userData?.type ?? null,
+            intensity: dmg
+          });
+          const h = g.world.damage(entityId, dmg);
 
           // Voxel destruction: pop cubes from the impact point and carve the object.
           if (g.voxelDestruction?.onHit) {
-            g.voxelDestruction.onHit(entityId, b.position, b.userData.velocity, g.shipData.weaponPower);
+            g.voxelDestruction.onHit(entityId, this._closest, b.userData.velocity, dmg);
           }
 
           // Sticky lock: if you hit a planet, lock it; turning away will release.

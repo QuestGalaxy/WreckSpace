@@ -10,13 +10,13 @@ export class World {
     /** @type {Set<number>} */
     this.entities = new Set();
 
-    /** @type {Map<number, { type: string, lootValue: number }>} */
+    /** @type {Map<number, { type: string, kind: string }>} */
     this.objectMeta = new Map();
 
     /** @type {Map<number, { hp: number, maxHp: number }>} */
     this.health = new Map();
 
-    /** @type {Map<number, { type: string, value: number }>} */
+    /** @type {Map<number, { type: string, value: number, powerupId?: string, ephemeral?: boolean, expiresAtSec?: number, noCargo?: boolean }>} */
     this.loot = new Map();
 
     /**
@@ -56,23 +56,30 @@ export class World {
   }
 
   /**
-   * @param {{ type: string, hp: number, maxHp: number, lootValue: number }} meta
+   * @param {{ type: string, kind: string, hp: number, maxHp: number }} meta
    * @returns {number} entityId
    */
   createObject(meta) {
     const id = this.createEntity();
-    this.objectMeta.set(id, { type: meta.type, lootValue: meta.lootValue });
+    this.objectMeta.set(id, { type: meta.type, kind: meta.kind });
     this.health.set(id, { hp: meta.hp, maxHp: meta.maxHp });
     return id;
   }
 
   /**
-   * @param {{ type: string, value: number }} meta
+   * @param {{ type: string, value: number, powerupId?: string, ephemeral?: boolean, expiresAtSec?: number, noCargo?: boolean }} meta
    * @returns {number} entityId
    */
   createLoot(meta) {
     const id = this.createEntity();
-    this.loot.set(id, { type: meta.type, value: meta.value });
+    this.loot.set(id, {
+      type: meta.type,
+      value: meta.value,
+      powerupId: meta.powerupId,
+      ephemeral: meta.ephemeral,
+      expiresAtSec: meta.expiresAtSec,
+      noCargo: meta.noCargo
+    });
     return id;
   }
 

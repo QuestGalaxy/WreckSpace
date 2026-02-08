@@ -49,9 +49,9 @@ export class SoundManager {
     }
 
     // Helper to generate noise
-    createNoiseBuffer() {
+    createNoiseBuffer(durationSec = 2) {
         if (!this.context) return null;
-        const bufferSize = this.context.sampleRate * 2; // 2 seconds
+        const bufferSize = Math.max(1, Math.floor(this.context.sampleRate * Math.max(0.05, durationSec)));
         const buffer = this.context.createBuffer(1, bufferSize, this.context.sampleRate);
         const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) {
@@ -68,9 +68,70 @@ export class SoundManager {
         this.playTone(600, 'triangle', 0.1, 0.1, 100);
     }
 
-    playHit() {
-        // Short metallic ping
-        this.playTone(1200, 'sine', 0.05, 0.2);
+    playHit(opts = null) {
+        // Default: short metallic ping
+        if (!opts) {
+            this.playTone(1200, 'sine', 0.05, 0.2);
+            return;
+        }
+
+        const profile = opts.profile ?? (opts.isTestArea ? 'cinematic' : 'subtle');
+        const isCinematic = profile === 'cinematic';
+        const kind = opts.kind ?? 'unknown';
+        const intensity = Math.max(0, Number(opts.intensity ?? 0));
+
+        if (!this.initialized) this.init();
+        if (!this.context) return;
+
+        // Layered hit -> thump + crackle + small ping.
+        // 'cinematic' matches Test Area tuning.
+        const ctx = this.context;
+        const now = ctx.currentTime;
+
+        const t = Math.max(0, Math.min(1, intensity / (kind === 'planet' ? 18 : 12)));
+        const volBase = isCinematic ? 0.10 : 0.05;
+        const volSpan = isCinematic ? 0.22 : 0.12;
+        const vol = volBase + t * volSpan;
+
+        // 1) Thump (low, short)
+        this.playTone(
+            kind === 'planet' ? 130 : 160,
+            'sine',
+            (isCinematic ? 0.09 : 0.06) + t * (isCinematic ? 0.04 : 0.02),
+            vol * 0.9,
+            kind === 'planet' ? 48 : 70
+        );
+
+        // 2) Crackle (band-limited noise burst)
+        const noiseBuffer = this.createNoiseBuffer(isCinematic ? 0.18 : 0.12);
+        if (noiseBuffer) {
+            const src = ctx.createBufferSource();
+            src.buffer = noiseBuffer;
+
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass';
+            hp.frequency.setValueAtTime(kind === 'planet' ? 650 : 900, now);
+
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass';
+            lp.frequency.setValueAtTime(4800, now);
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(vol * (isCinematic ? 0.75 : 0.45), now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + (isCinematic ? 0.12 : 0.08) + t * (isCinematic ? 0.06 : 0.03));
+
+            src.connect(hp);
+            hp.connect(lp);
+            lp.connect(gain);
+            gain.connect(this.masterGain);
+
+            src.start(now);
+            src.stop(now + (isCinematic ? 0.2 : 0.14));
+        }
+
+        // 3) Ping (tiny, higher)
+        this.playTone(1200 + t * 250, 'sine', isCinematic ? 0.045 : 0.035, (isCinematic ? 0.10 : 0.06) + t * (isCinematic ? 0.08 : 0.05));
     }
 
     playExplosion(size = 1) {

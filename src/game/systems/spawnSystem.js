@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { V1 } from '../../balance/v1.js';
 
 export class SpawnSystem {
   /**
@@ -13,6 +14,7 @@ export class SpawnSystem {
     // Loot visuals: keep them cheap but distinct (no heavy post FX needed).
     this._gemGeo = new THREE.BoxGeometry(1, 1, 1);
     this._coinGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.22, 14, 1, false);
+    this._powerupGeo = new THREE.BoxGeometry(1, 1, 1);
     this._voxelDebrisGeo = new THREE.BoxGeometry(1, 1, 1);
 
     /** @type {THREE.Mesh[]} */
@@ -22,10 +24,13 @@ export class SpawnSystem {
     /** @type {THREE.Mesh[]} */
     this._coinLootPool = [];
     /** @type {THREE.Mesh[]} */
+    this._powerupLootPool = [];
+    /** @type {THREE.Mesh[]} */
     this._voxelDebrisPool = [];
 
     this._fragmentPoolLimit = 200;
     this._lootPoolLimit = 200;
+    this._powerupPoolLimit = 120;
     this._voxelDebrisPoolLimit = 1600;
 
     // Scratch
@@ -53,7 +58,7 @@ export class SpawnSystem {
 
   _getLootScaleForKind(kind) {
     const size = this._getLootWorldSize();
-    if (kind === 'gem') {
+    if (kind === 'gem' || kind === 'powerup') {
       // Unit cube -> scale to side length.
       return size;
     }
@@ -67,16 +72,15 @@ export class SpawnSystem {
    * @param {THREE.Mesh} obj
    */
   spawnOnDestroyed(obj) {
-    // Voxel bodies get a dedicated \"cube explosion\"; don't also spawn large fragments (too noisy).
+    // Voxel bodies get a dedicated "cube explosion"; don't also spawn large fragments (too noisy).
     if (obj?.userData?.voxel?.filled) {
       this.spawnVoxelExplosion(obj);
-      // Loot is now driven mainly by resource voxels; keep a tiny bonus sprinkle so destruction still rewards.
-      this.spawnLoot(obj, { scale: 0.25 });
+      this.spawnDrops(obj);
       return;
     }
 
     this.spawnFragments(obj);
-    this.spawnLoot(obj);
+    this.spawnDrops(obj);
   }
 
   /**
@@ -114,6 +118,188 @@ export class SpawnSystem {
       g.scene.add(fragment);
       g.particles.push(fragment);
     }
+  }
+
+  /**
+   * Deterministic V1 drops: fixed Coin + Gem totals per target kind (and optional powerup).
+   * @param {THREE.Mesh} obj
+   */
+  spawnDrops(obj) {
+    const g = this.game;
+    const entityId = obj?.userData?.entityId ?? null;
+    const kind = entityId ? (g.world.objectMeta.get(entityId)?.kind ?? null) : null;
+    const cfg = kind ? (V1.targets?.[kind] ?? null) : null;
+    if (!cfg) return;
+
+    const nowSec = g._simTimeSec ?? 0;
+    const coinUnit = V1.currencyUnits.coinPickup ?? 10;
+    const gemUnit = V1.currencyUnits.gemPickup ?? 50;
+
+    const coinTotal = cfg.drops?.coin ?? 0;
+    const gemTotal = cfg.drops?.gem ?? 0;
+
+    this._spawnCurrencyTotal(obj, { type: 'coin', total: coinTotal, unit: coinUnit, nowSec });
+    this._spawnCurrencyTotal(obj, { type: 'gem', total: gemTotal, unit: gemUnit, nowSec });
+
+    const pChance = cfg.powerupDropChance ?? 0;
+    if (pChance > 0 && Math.random() < pChance) {
+      const pid = this._pickPowerupId();
+      if (pid) this._spawnPowerup(obj, { powerupId: pid, nowSec });
+    }
+  }
+
+  _pickPowerupId() {
+    const ids = [
+      V1.powerups.megaMagnet.id,
+      V1.powerups.damageBoost.id,
+      V1.powerups.overdrive.id,
+      V1.powerups.instantShield.id,
+      V1.powerups.freeWarp.id
+    ];
+    return ids[Math.floor(Math.random() * ids.length)] ?? null;
+  }
+
+  _spawnCurrencyTotal(obj, { type, total, unit, nowSec }) {
+    const g = this.game;
+    if (!g.scene) return;
+    const t = Math.max(0, total ?? 0);
+    const u = Math.max(1, unit ?? 1);
+    const n = Math.floor(t / u);
+    const rem = t - n * u;
+
+    const spawnOne = (value) => {
+      const loot = type === 'gem' ? this._acquireGemLoot() : this._acquireCoinLoot();
+      loot.position.copy(obj.position);
+      loot.rotation.set(0, 0, 0);
+
+      const entityId = g.world.createLoot({ type, value });
+      g.renderRegistry.bind(entityId, loot);
+
+      const sprayDir = new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2)
+        .normalize()
+        .multiplyScalar(Math.random() * 18 + 10);
+
+      const ring = loot.userData.ring;
+      const glow = loot.userData.glow;
+      const label = loot.userData.label;
+      const markerRoot = loot.userData.markerRoot;
+      const baseRingSize = loot.userData.baseRingSize;
+      const forceMarkerUntilSec = nowSec + this._lootMarkerGraceExplosionSec;
+      const baseScale = loot.userData.baseScale;
+      loot.userData = {
+        ring,
+        glow,
+        label,
+        markerRoot,
+        baseRingSize,
+        forceMarkerUntilSec,
+        baseScale,
+        entityId,
+        type,
+        value
+      };
+
+      if (label) {
+        const txt = type === 'gem' ? `Gem +${value}` : `Coin +${value}`;
+        this._setLootLabelText(label, txt, type === 'gem' ? 0x00ffff : 0xffaa00);
+        label.visible = true;
+      }
+
+      g.world.transform.set(entityId, {
+        x: loot.position.x,
+        y: loot.position.y,
+        z: loot.position.z,
+        rx: 0,
+        ry: 0,
+        rz: 0,
+        sx: loot.scale.x,
+        sy: loot.scale.y,
+        sz: loot.scale.z
+      });
+      g.world.velocity.set(entityId, { x: sprayDir.x, y: sprayDir.y, z: sprayDir.z });
+      g.world.lootMotion.set(entityId, {
+        rotationSpeed: {
+          x: (Math.random() - 0.5) * 0.15,
+          y: (Math.random() - 0.5) * 0.15,
+          z: (Math.random() - 0.5) * 0.15
+        },
+        driftOffset: Math.random() * 100,
+        floatBaseY: loot.position.y
+      });
+
+      g.scene.add(loot);
+    };
+
+    for (let i = 0; i < n; i++) spawnOne(u);
+    if (rem > 0) spawnOne(rem);
+  }
+
+  _spawnPowerup(obj, { powerupId, nowSec }) {
+    const g = this.game;
+    if (!g.scene) return;
+    const p = Object.values(V1.powerups).find((x) => x?.id === powerupId) ?? null;
+    if (!p) return;
+
+    const loot = this._acquirePowerupLoot(powerupId);
+    loot.position.copy(obj.position);
+    loot.rotation.set(0, 0, 0);
+
+    const entityId = g.world.createLoot({ type: 'powerup', value: 0, powerupId });
+    g.renderRegistry.bind(entityId, loot);
+
+    const sprayDir = new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2)
+      .normalize()
+      .multiplyScalar(Math.random() * 14 + 10);
+
+    const ring = loot.userData.ring;
+    const glow = loot.userData.glow;
+    const label = loot.userData.label;
+    const markerRoot = loot.userData.markerRoot;
+    const baseRingSize = loot.userData.baseRingSize;
+    const forceMarkerUntilSec = nowSec + this._lootMarkerGraceExplosionSec;
+    const baseScale = loot.userData.baseScale;
+    loot.userData = {
+      ring,
+      glow,
+      label,
+      markerRoot,
+      baseRingSize,
+      forceMarkerUntilSec,
+      baseScale,
+      entityId,
+      type: 'powerup',
+      value: 0,
+      powerupId
+    };
+
+    if (label) {
+      this._setLootLabelText(label, p.name.toUpperCase(), 0xe2ff64);
+      label.visible = true;
+    }
+
+    g.world.transform.set(entityId, {
+      x: loot.position.x,
+      y: loot.position.y,
+      z: loot.position.z,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      sx: loot.scale.x,
+      sy: loot.scale.y,
+      sz: loot.scale.z
+    });
+    g.world.velocity.set(entityId, { x: sprayDir.x, y: sprayDir.y, z: sprayDir.z });
+    g.world.lootMotion.set(entityId, {
+      rotationSpeed: {
+        x: (Math.random() - 0.5) * 0.15,
+        y: (Math.random() - 0.5) * 0.15,
+        z: (Math.random() - 0.5) * 0.15
+      },
+      driftOffset: Math.random() * 100,
+      floatBaseY: loot.position.y
+    });
+
+    g.scene.add(loot);
   }
 
   /**
@@ -213,11 +399,12 @@ export class SpawnSystem {
     const cellWorld = (obj.scale.x ?? 1) * (vox?.voxelSizeOriginal ?? 1) * (vox?.normScale ?? 1);
     const cubeSize = THREE.MathUtils.clamp(cellWorld * 0.65, 0.45 * ws, 6 * ws);
 
-    // Debris cubes (particles)
-    const maxDebris = obj.userData.type === 'planet' ? 16 : 9;
-    const nDebris = Math.min(maxDebris, debrisPositions.length);
+	    // Debris cubes (particles)
+	    const isTestArea = g?.mode === 'testArea';
+	    const maxDebris = obj.userData.type === 'planet' ? (isTestArea ? 84 : 16) : (isTestArea ? 38 : 9);
+	    const nDebris = Math.min(maxDebris, debrisPositions.length);
 
-    for (let i = 0; i < nDebris; i++) {
+	    for (let i = 0; i < nDebris; i++) {
       const p = debrisPositions[i];
       const debris = this._acquireVoxelDebris(obj);
       this._tintVoxelDebrisToSource(debris, obj);
@@ -231,12 +418,17 @@ export class SpawnSystem {
       this._tmpDir
         .multiplyScalar(0.85)
         .addScaledVector(this._tmpDir2, 0.28)
-        .addScaledVector(this._tmpW, 0.45)
+        // Test area: wider lateral spray (more "right/left" scatter).
+        .addScaledVector(this._tmpW, isTestArea ? 0.85 : 0.45)
         .normalize();
 
       // Keep impact debris readable: slower + tighter spread.
-      const speed = (obj.userData.type === 'planet' ? 0.04 : 0.08) * (obj.scale.x ?? 1) + (2.2 * ws);
-      const life = (obj.userData.type === 'planet' ? 70 : 45) + Math.random() * 35;
+      const speed0 = (obj.userData.type === 'planet' ? 0.04 : 0.08) * (obj.scale.x ?? 1) + (2.2 * ws);
+      const speed = speed0 * (isTestArea ? 1.35 : 1.0);
+      const baseLife = obj.userData.type === 'planet' ? 70 : 45;
+      const jitterLife = 35;
+      const lifeMul = isTestArea ? 0.85 : 1.0; // shorter-lived in test area
+      const life = (baseLife + Math.random() * jitterLife) * lifeMul;
       debris.userData = {
         isVoxelDebris: true,
         velocity: new THREE.Vector3().copy(this._tmpDir).multiplyScalar(speed * (0.55 + Math.random() * 0.55)),
@@ -253,31 +445,99 @@ export class SpawnSystem {
 
       g.scene.add(debris);
       g.particles.push(debris);
-    }
+	    }
 
-    // Resource cubes become collectible loot (gems/coins) thrown outward.
-    const maxLoot = obj.userData.type === 'planet' ? 7 : 3;
-    const nLoot = Math.min(maxLoot, resourcePositions.length);
-    for (let i = 0; i < nLoot; i++) {
-      const p = resourcePositions[i];
-      const isGem = Math.random() > 0.55;
-      const loot = isGem ? this._acquireGemLoot() : this._acquireCoinLoot();
-      loot.position.copy(p);
+	    // "Hero chunks" that are larger and fly farther in a more directional way.
+	    // Test area is aggressive; main world is subtle.
+	    {
+	      const isPlanet = obj.userData.type === 'planet';
+	      const heroCount = isPlanet ? (isTestArea ? 4 : 2) : (isTestArea ? 2 : 1);
+	      const velN = this._tmpDir2.copy(bulletVelWorld || new THREE.Vector3(0, 0, 1)).normalize();
+	      const outN = this._tmpDir.copy(hitWorldPos).sub(obj.position).normalize();
+	      for (let i = 0; i < heroCount; i++) {
+	        const debris = this._acquireVoxelDebris(obj);
+	        this._tintVoxelDebrisToSource(debris, obj);
+	        debris.position.copy(hitWorldPos);
+	        debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+	        const big = cubeSize * (isTestArea ? (2.2 + Math.random() * 1.6) : (1.6 + Math.random() * 0.9));
+	        debris.scale.setScalar(big);
+
+	        this._tmpW.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+	        const dir = this._tmpDir
+	          .copy(outN)
+	          .multiplyScalar(0.75)
+	          .addScaledVector(velN, 0.55)
+	          .addScaledVector(this._tmpW, 0.35)
+	          .normalize();
+
+	        const speed = (isPlanet ? (isTestArea ? 7.0 : 4.6) : (isTestArea ? 9.0 : 6.0)) * ws * (0.75 + Math.random() * 0.65);
+	        const life = (isPlanet ? (isTestArea ? 120 : 90) : (isTestArea ? 95 : 70)) + Math.random() * (isTestArea ? 65 : 45);
+	        debris.userData = {
+	          isVoxelDebris: true,
+	          velocity: new THREE.Vector3().copy(dir).multiplyScalar(speed),
+	          rotVelocity: new THREE.Vector3(
+	            (Math.random() - 0.5) * 0.10,
+	            (Math.random() - 0.5) * 0.10,
+	            (Math.random() - 0.5) * 0.10
+	          ),
+	          life,
+	          initialLife: life,
+	          baseOpacity: 0.98,
+	          _poolKind: 'voxelDebris'
+	        };
+
+	        g.scene.add(debris);
+	        g.particles.push(debris);
+	      }
+	    }
+
+    // V1: resource voxels are visual-only; currency drops happen on full destruction only.
+    void resourcePositions;
+
+    // Test area: spawn a tiny amount of loot on every hit (visual + interaction feel).
+    if (isTestArea) {
+      this._spawnHitLootBurst({ pos: hitWorldPos, velWorld: bulletVelWorld, nowSec });
+    }
+  }
+
+  _spawnHitLootBurst({ pos, velWorld, nowSec }) {
+    const g = this.game;
+    if (!g.scene) return;
+    const ws = g.worldScale ?? 1;
+
+    // Keep it small and controlled: always a coin, occasional gem.
+    const drops = [{ type: 'coin', value: 10 }];
+    if (Math.random() < 0.22) drops.push({ type: 'gem', value: 50 });
+
+    const velN = this._tmpDir2.copy(velWorld || new THREE.Vector3(0, 0, 1)).normalize();
+    for (const d of drops) {
+      const loot = d.type === 'gem' ? this._acquireGemLoot() : this._acquireCoinLoot();
+      loot.position.copy(pos);
       loot.rotation.set(0, 0, 0);
 
-      const entityId = g.world.createLoot({ type: isGem ? 'gem' : 'coin', value: isGem ? 50 : 10 });
+      const expiresAtSec = (nowSec ?? 0) + 8.0;
+      const entityId = g.world.createLoot({
+        type: d.type,
+        value: d.value,
+        ephemeral: true,
+        noCargo: true,
+        expiresAtSec
+      });
       g.renderRegistry.bind(entityId, loot);
 
-      this._tmpDir.copy(p).sub(obj.position).normalize();
-      const vel = this._tmpDir.multiplyScalar((obj.userData.type === 'planet' ? 0.05 : 0.10) * (obj.scale.x ?? 1) + (7 * ws));
+      // Gentle outward spray with a bit of forward bias.
+      this._tmpW.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+      this._tmpDir.copy(this._tmpW).addScaledVector(velN, 0.65).normalize();
+      const speed = (10 + Math.random() * 10) * ws;
 
       const ring = loot.userData.ring;
       const glow = loot.userData.glow;
       const label = loot.userData.label;
       const markerRoot = loot.userData.markerRoot;
       const baseRingSize = loot.userData.baseRingSize;
-      const forceMarkerUntilSec = nowSec + this._lootMarkerGraceSec;
       const baseScale = loot.userData.baseScale;
+      const forceMarkerUntilSec = (nowSec ?? 0) + 6.0;
       loot.userData = {
         ring,
         glow,
@@ -287,13 +547,14 @@ export class SpawnSystem {
         forceMarkerUntilSec,
         baseScale,
         entityId,
-        type: isGem ? 'gem' : 'coin',
-        value: isGem ? 50 : 10
+        type: d.type,
+        value: d.value,
+        _ephemeral: true
       };
 
       if (label) {
-        const txt = isGem ? `Gem +50` : `Coin +10`;
-        this._setLootLabelText(label, txt, isGem ? 0x00ffff : 0xffaa00);
+        const txt = d.type === 'gem' ? `Gem +${d.value}` : `Coin +${d.value}`;
+        this._setLootLabelText(label, txt, d.type === 'gem' ? 0x00ffff : 0xffaa00);
         label.visible = true;
       }
 
@@ -308,7 +569,7 @@ export class SpawnSystem {
         sy: loot.scale.y,
         sz: loot.scale.z
       });
-      g.world.velocity.set(entityId, { x: vel.x, y: vel.y, z: vel.z });
+      g.world.velocity.set(entityId, { x: this._tmpDir.x * speed, y: this._tmpDir.y * speed, z: this._tmpDir.z * speed });
       g.world.lootMotion.set(entityId, {
         rotationSpeed: {
           x: (Math.random() - 0.5) * 0.15,
@@ -321,8 +582,6 @@ export class SpawnSystem {
 
       g.scene.add(loot);
     }
-
-    void hitWorldPos;
   }
 
   /**
@@ -430,75 +689,8 @@ export class SpawnSystem {
       g.particles.push(debris);
     }
 
-    // Remaining resource voxels become loot.
-    if (vox.resource && vox.resource.size > 0) {
-      const maxLoot = isPlanet ? 20 : 8;
-      const lootKeys = this._sampleFromSet(vox.resource, maxLoot);
-      const lootPositions = this._keysToWorldPositions(obj, vox, lootKeys);
-      for (let i = 0; i < lootPositions.length; i++) {
-        const p = lootPositions[i];
-        const isGem = Math.random() > 0.5;
-        const loot = isGem ? this._acquireGemLoot() : this._acquireCoinLoot();
-        loot.position.copy(p);
-        loot.rotation.set(0, 0, 0);
-
-        const entityId = g.world.createLoot({ type: isGem ? 'gem' : 'coin', value: isGem ? 50 : 10 });
-        g.renderRegistry.bind(entityId, loot);
-
-        this._tmpDir.copy(p).sub(obj.position).normalize();
-        const vel = this._tmpDir.multiplyScalar((isPlanet ? 0.06 : 0.12) * (obj.scale.x ?? 1) + (12 * ws));
-
-        const ring = loot.userData.ring;
-        const glow = loot.userData.glow;
-        const label = loot.userData.label;
-        const markerRoot = loot.userData.markerRoot;
-        const baseRingSize = loot.userData.baseRingSize;
-        const forceMarkerUntilSec = nowSec + this._lootMarkerGraceExplosionSec;
-        const baseScale = loot.userData.baseScale;
-        loot.userData = {
-          ring,
-          glow,
-          label,
-          markerRoot,
-          baseRingSize,
-          forceMarkerUntilSec,
-          baseScale,
-          entityId,
-          type: isGem ? 'gem' : 'coin',
-          value: isGem ? 50 : 10
-        };
-
-        if (label) {
-          const txt = isGem ? `Gem +50` : `Coin +10`;
-          this._setLootLabelText(label, txt, isGem ? 0x00ffff : 0xffaa00);
-          label.visible = true;
-        }
-
-        g.world.transform.set(entityId, {
-          x: loot.position.x,
-          y: loot.position.y,
-          z: loot.position.z,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: loot.scale.x,
-          sy: loot.scale.y,
-          sz: loot.scale.z
-        });
-        g.world.velocity.set(entityId, { x: vel.x, y: vel.y, z: vel.z });
-        g.world.lootMotion.set(entityId, {
-          rotationSpeed: {
-            x: (Math.random() - 0.5) * 0.15,
-            y: (Math.random() - 0.5) * 0.15,
-            z: (Math.random() - 0.5) * 0.15
-          },
-          driftOffset: Math.random() * 100,
-          floatBaseY: loot.position.y
-        });
-
-        g.scene.add(loot);
-      }
-    }
+    // V1: currency is dropped deterministically on full destruction, not from voxel resources.
+    void nowSec;
 
     void cellWorld;
   }
@@ -532,6 +724,10 @@ export class SpawnSystem {
     }
     if (kind === 'coin') {
       if (this._coinLootPool.length < this._lootPoolLimit) this._coinLootPool.push(loot);
+      return;
+    }
+    if (kind === 'powerup') {
+      if (this._powerupLootPool.length < this._powerupPoolLimit) this._powerupLootPool.push(loot);
       return;
     }
   }
@@ -717,6 +913,52 @@ export class SpawnSystem {
     return mesh;
   }
 
+  _powerupColorForId(id) {
+    if (id === V1.powerups.megaMagnet.id) return { color: 0x61f4ff, emissive: 0x0b3a42 };
+    if (id === V1.powerups.damageBoost.id) return { color: 0xff6677, emissive: 0x2a0a10 };
+    if (id === V1.powerups.overdrive.id) return { color: 0xffc15e, emissive: 0x2a1a00 };
+    if (id === V1.powerups.instantShield.id) return { color: 0x66ccff, emissive: 0x0b1533 };
+    if (id === V1.powerups.freeWarp.id) return { color: 0xe2ff64, emissive: 0x162a00 };
+    return { color: 0xe2ff64, emissive: 0x162a00 };
+  }
+
+  _acquirePowerupLoot(powerupId) {
+    const loot = this._powerupLootPool.pop() ?? null;
+    const s = this._getLootScaleForKind('powerup');
+    const { color, emissive } = this._powerupColorForId(powerupId);
+
+    if (loot) {
+      loot.visible = true;
+      loot.scale.setScalar(s);
+      loot.material.color.setHex(color);
+      loot.material.emissive.setHex(emissive);
+      loot.material.emissiveIntensity = 0.28;
+      loot.material.metalness = 0.10;
+      loot.material.roughness = 0.35;
+      this._ensureLootMarkerParts(loot, { kind: 'powerup' });
+      return loot;
+    }
+
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive,
+      emissiveIntensity: 0.28,
+      metalness: 0.10,
+      roughness: 0.35,
+      flatShading: true
+    });
+    const mesh = new THREE.Mesh(this._powerupGeo, mat);
+    mesh.scale.setScalar(s);
+
+    const ring = this._createLootIndicator({ size: 3.0, thickness: 0.085, arm: 0.95, color: 0xe2ff64, opacity: 0.75 });
+    ring.userData = { isLootRing: true, baseSize: 3.0 };
+    mesh.add(ring);
+
+    mesh.userData = { ring, glow: null, baseScale: { x: s, y: s, z: s }, baseRingSize: 3.0 };
+    this._ensureLootMarkerParts(mesh, { kind: 'powerup' });
+    return mesh;
+  }
+
   _copyStandardMaterial(dst, src) {
     if (!dst || !src) return;
     if (!(dst instanceof THREE.MeshStandardMaterial) || !(src instanceof THREE.MeshStandardMaterial)) return;
@@ -800,7 +1042,9 @@ export class SpawnSystem {
     const indicatorCfg =
       kind === 'gem'
         ? { size: 3.0, thickness: 0.085, arm: 0.95, color: 0x61f4ff, opacity: 0.65 }
-        : { size: 3.0, thickness: 0.085, arm: 0.95, color: 0xffc15e, opacity: 0.65 };
+        : kind === 'powerup'
+          ? { size: 3.0, thickness: 0.085, arm: 0.95, color: 0xe2ff64, opacity: 0.75 }
+          : { size: 3.0, thickness: 0.085, arm: 0.95, color: 0xffc15e, opacity: 0.65 };
 
     // Ring config: ensure it is always visible and tuned for the current worldScale.
     let ring = mesh.userData?.ring ?? null;
@@ -879,6 +1123,7 @@ export class SpawnSystem {
 
     // Default label colors; actual text is applied by spawn sites.
     if (kind === 'gem') this._setLootLabelText(label, 'GEM', 0x00ffff);
+    else if (kind === 'powerup') this._setLootLabelText(label, 'POWER', 0xe2ff64);
     else this._setLootLabelText(label, 'COIN', 0xffaa00);
     // Keep hidden until spawned.
     label.visible = false;

@@ -43,7 +43,8 @@ export class MovementSystem {
     const yawSpeed = 0.010 * k;
     const rollSpeed = 0.015 * k;
     // Acceleration is scaled by worldScale so voxel scaling doesn't change feel.
-    const acceleration = (g.keys['KeyZ'] ? 0.08 : 0.04) * k * ws;
+    const boosting = !!g.keys['KeyZ'];
+    const acceleration = (boosting ? 0.08 : 0.04) * k * ws;
     const friction = Math.pow(0.98, k); // convert per-tick friction to dt-aware
 
     const t = g.world.transform.get(g.playerEntityId);
@@ -120,8 +121,9 @@ export class MovementSystem {
     // `level` is in "meters-ish"; multiply by worldScale to keep feel stable with voxel scaling.
     const level = g.throttle.level;
     const maxLevel = g.throttle.max;
-    const boostedLevel = g.keys['KeyZ'] ? Math.min(maxLevel, level + 2) : level;
-    const targetSpeedVal = boostedLevel * ws;
+    const speedMul = g.shipDerived?.speedMul ?? 1;
+    const boostedLevel = boosting ? Math.min(maxLevel, level + 2) : level;
+    const targetSpeedVal = boostedLevel * ws * speedMul;
     const speedLerp = 1 - Math.pow(1 - 0.05, k);
     g.currentSpeed = THREE.MathUtils.lerp(g.currentSpeed, targetSpeedVal, speedLerp);
 
@@ -137,23 +139,6 @@ export class MovementSystem {
     t.x += v.x;
     t.y += v.y;
     t.z += v.z;
-
-    // Dodge (Side Thrusters)
-    if (g.keys['ShiftLeft'] || g.keys['ShiftRight']) {
-      const strafeForce = 0.05 * k;
-      if (g.keys['ArrowLeft'] || g.keys['KeyA']) {
-        this._left.set(1, 0, 0).applyQuaternion(this._quat);
-        v.x += this._left.x * strafeForce;
-        v.y += this._left.y * strafeForce;
-        v.z += this._left.z * strafeForce;
-      }
-      if (g.keys['ArrowRight'] || g.keys['KeyD']) {
-        this._right.set(-1, 0, 0).applyQuaternion(this._quat);
-        v.x += this._right.x * strafeForce;
-        v.y += this._right.y * strafeForce;
-        v.z += this._right.z * strafeForce;
-      }
-    }
 
     // Store back rotation to world.
     rq.x = this._quat.x;
@@ -173,7 +158,7 @@ export class MovementSystem {
     if (g.engineOffsets) {
       g.engineOffsets.forEach((offset) => {
         this._enginePos.copy(offset).applyQuaternion(this._quat).add(g.player.position);
-        if (Math.random() > 0.4) g.vfx.spawnEngineTrail(this._enginePos, g.keys['KeyZ']);
+        if (Math.random() > 0.4) g.vfx.spawnEngineTrail(this._enginePos, boosting);
       });
     }
   }

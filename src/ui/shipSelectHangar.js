@@ -27,6 +27,7 @@ export class ShipSelectHangar {
 
     this._index = 0;
     this._scroll = 0;
+    this._glitch = 0;
 
     this._pointerDown = false;
     this._dragStartX = 0;
@@ -93,6 +94,9 @@ export class ShipSelectHangar {
   setIndex(idx, { immediate = false } = {}) {
     if (this.ships.length === 0) return;
     const next = clamp(idx, 0, this.ships.length - 1);
+    if (next !== this._index) {
+      this._glitch = 1.0;
+    }
     this._index = next;
     if (immediate) this._scroll = next;
     this._updateInfo();
@@ -175,7 +179,7 @@ export class ShipSelectHangar {
     this.camera.lookAt(0, 22 * this.worldScale, 0);
 
     // Hangar should be crystal clear (no CRT pixelation).
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -185,7 +189,7 @@ export class ShipSelectHangar {
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // Keep bloom very subtle to avoid haze.
-    this._bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.08, 0.55);
+    this._bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.15, 0.05, 0.6);
     this.composer.addPass(this._bloom);
 
     this.textures = createVoxelTextures();
@@ -206,8 +210,8 @@ export class ShipSelectHangar {
       map: map ?? null,
       emissive,
       emissiveIntensity,
-      metalness: 0.0,
-      roughness: 1.0,
+      metalness: 0.2, // Slightly more reflective
+      roughness: 0.7, // Smoother for better light highlights
       flatShading: true,
       vertexColors: true
     });
@@ -272,23 +276,133 @@ export class ShipSelectHangar {
       this.scene.add(strip);
     }
 
-    // Floating dust motes (gives depth even when ships are still)
+    // Floating dust motes
     const dustGeo = new THREE.BufferGeometry();
-    const count = 900;
+    const count = 1200;
     const arr = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const ix = i * 3;
-      arr[ix] = (Math.random() - 0.5) * 900 * ws;
-      arr[ix + 1] = Math.random() * 520 * ws;
-      arr[ix + 2] = (Math.random() - 0.5) * 900 * ws;
+      arr[ix] = (Math.random() - 0.5) * 1200 * ws;
+      arr[ix + 1] = Math.random() * 600 * ws;
+      arr[ix + 2] = (Math.random() - 0.5) * 1200 * ws;
     }
     dustGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
     const dust = new THREE.Points(
       dustGeo,
-      new THREE.PointsMaterial({ color: 0xbfe6ff, size: 2.0, transparent: true, opacity: 0.25, sizeAttenuation: true })
+      new THREE.PointsMaterial({ color: 0x66ccff, size: 2.5, transparent: true, opacity: 0.3, sizeAttenuation: true })
     );
     this.scene.add(dust);
     this._dust = dust;
+
+    // Holographic platform under the ship
+    const holoGeo = new THREE.CylinderGeometry(100 * ws, 110 * ws, 5 * ws, 32);
+    const holoMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+      wireframe: true
+    });
+    this._holoPlatform = new THREE.Mesh(holoGeo, holoMat);
+    this._holoPlatform.position.y = 2 * ws;
+    this.scene.add(this._holoPlatform);
+
+    // Inner glow for platform
+    const innerHoloGeo = new THREE.CylinderGeometry(95 * ws, 95 * ws, 1 * ws, 32);
+    const innerHoloMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.05,
+      blending: THREE.AdditiveBlending
+    });
+    this._innerHolo = new THREE.Mesh(innerHoloGeo, innerHoloMat);
+    this._innerHolo.position.y = 3 * ws;
+    this.scene.add(this._innerHolo);
+
+    // Add a spotlight above the selected ship
+    this._spotlight = new THREE.SpotLight(0xffffff, 15.0); // Increased intensity significantly
+    this._spotlight.position.set(0, 300 * ws, 50 * ws); // Move slightly forward to light the front
+    this._spotlight.angle = Math.PI / 6;
+    this._spotlight.penumbra = 0.3;
+    this._spotlight.decay = 1.0; // Linear-ish decay for better reach
+    this._spotlight.distance = 1500 * ws;
+    this._spotlight.target.position.set(0, 12 * this.voxelSize, 0); // Target the ship center
+    this.scene.add(this._spotlight);
+    this.scene.add(this._spotlight.target);
+
+    // Add a point light at the ship's center for a "glow from within/under" effect
+    this._shipGlow = new THREE.PointLight(0x66ccff, 2.0, 200 * ws);
+    this._shipGlow.position.set(0, 12 * this.voxelSize, 0);
+    this.scene.add(this._shipGlow);
+
+    // Volumetric spotlight cone with a gradient
+    const coneGeo = new THREE.CylinderGeometry(5 * ws, 120 * ws, 400 * ws, 32, 20, true);
+    
+    // Add vertex colors for gradient
+    const count_colors = coneGeo.attributes.position.count;
+    const colors = new Float32Array(count_colors * 3);
+    const pos = coneGeo.attributes.position;
+    for (let i = 0; i < count_colors; i++) {
+      const y = pos.getY(i);
+      // Normalized Y from -200 to 200 -> 0 to 1
+      const alpha = (y + 200 * ws) / (400 * ws);
+      const intensity = Math.pow(alpha, 2.5); // Sharp falloff at the top
+      colors[i * 3] = 0.4 * intensity;
+      colors[i * 3 + 1] = 0.8 * intensity;
+      colors[i * 3 + 2] = 1.0 * intensity;
+    }
+    coneGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const coneMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+      depthWrite: false
+    });
+    this._spotCone = new THREE.Mesh(coneGeo, coneMat);
+    this._spotCone.position.set(0, 200 * ws, 0);
+    this.scene.add(this._spotCone);
+
+    // Add a secondary thinner "core" beam
+    const coreGeo = new THREE.CylinderGeometry(2 * ws, 40 * ws, 400 * ws, 16, 1, true);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.05,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    this._spotCore = new THREE.Mesh(coreGeo, coreMat);
+    this._spotCore.position.set(0, 200 * ws, 0);
+    this.scene.add(this._spotCore);
+
+    // Add some hanging cables for detail
+    const cableMat = this._voxLit({ color: 0x1a1a1a, emissive: 0x000000 });
+    for (let i = 0; i < 8; i++) {
+      const cable = new THREE.Mesh(new THREE.CylinderGeometry(1 * ws, 1 * ws, 600 * ws), cableMat);
+      const angle = (i / 8) * Math.PI * 2;
+      const radius = 500 * ws;
+      cable.position.set(Math.cos(angle) * radius, 300 * ws, Math.sin(angle) * radius);
+      cable.rotation.z = (Math.random() - 0.5) * 0.2;
+      this.scene.add(cable);
+    }
+
+    // Add some distant "tech" boxes
+    const boxMat = this._voxLit({ color: 0x2a2a2a, map: this.textures.panelsDark });
+    for (let i = 0; i < 12; i++) {
+      const size = (20 + Math.random() * 40) * ws;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), boxMat);
+      box.position.set(
+        (Math.random() - 0.5) * 1500 * ws,
+        Math.random() * 400 * ws,
+        -600 * ws - Math.random() * 400 * ws
+      );
+      box.rotation.set(Math.random(), Math.random(), Math.random());
+      this.scene.add(box);
+    }
   }
 
   _buildShips() {
@@ -360,6 +474,9 @@ export class ShipSelectHangar {
     this._tPrev = nowMs;
     const t = nowMs / 1000;
 
+    // Glitch decay
+    this._glitch = Math.max(0, this._glitch - dt * 2.5);
+
     // Smooth scroll toward selected index, but allow live dragging.
     const scrollLerp = 1 - Math.pow(1 - 0.12, dt * 60);
     if (this._pointerDown) {
@@ -377,10 +494,51 @@ export class ShipSelectHangar {
     if (this._key) {
       this._key.position.x = 140 * this.worldScale + Math.sin(t * 0.6) * 60 * this.worldScale;
       this._key.position.z = 180 * this.worldScale + Math.cos(t * 0.5) * 45 * this.worldScale;
+      this._key.intensity = 1.15 + (Math.random() < 0.05 ? this._glitch * 2 : 0);
+    }
+
+    if (this._bloom) {
+      this._bloom.strength = 0.18 + this._glitch * 0.8;
+    }
+
+    // Camera shake on glitch
+    if (this._glitch > 0.01) {
+      this.camera.position.x += (Math.random() - 0.5) * 2 * this._glitch * this.worldScale;
+      this.camera.position.y += (Math.random() - 0.5) * 2 * this._glitch * this.worldScale;
+    } else {
+      // Return to base position
+      const basePos = new THREE.Vector3(18 * this.worldScale, 66 * this.worldScale, 182 * this.worldScale);
+      this.camera.position.lerp(basePos, 0.1);
     }
 
     // Dust drift
-    if (this._dust) this._dust.rotation.y = t * 0.04;
+    if (this._dust) {
+      this._dust.rotation.y = t * 0.04;
+      this._dust.position.y = Math.sin(t * 0.2) * 10 * this.worldScale;
+    }
+
+    // Animate holographic platform
+    if (this._holoPlatform) {
+      this._holoPlatform.rotation.y = t * 0.5;
+      this._holoPlatform.material.opacity = 0.15 + Math.sin(t * 2) * 0.05;
+    }
+    if (this._innerHolo) {
+      this._innerHolo.scale.setScalar(1 + Math.sin(t * 4) * 0.02);
+    }
+
+    if (this._spotlight) {
+      this._spotlight.intensity = (15.0 + Math.sin(t * 10) * 1.5 * this._glitch);
+    }
+    if (this._shipGlow) {
+      this._shipGlow.intensity = 2.0 + Math.sin(t * 3) * 0.5;
+    }
+    if (this._spotCone) {
+      this._spotCone.material.opacity = (0.15 + Math.sin(t * 5) * 0.02) * (1 + this._glitch);
+      this._spotCone.rotation.y = t * 0.1; // Slow rotation for shimmer
+    }
+    if (this._spotCore) {
+      this._spotCore.material.opacity = (0.05 + Math.sin(t * 8) * 0.01) * (1 + this._glitch);
+    }
 
     // Position ships as a carousel in the hangar.
     const spacing = this._spacing ?? 200;

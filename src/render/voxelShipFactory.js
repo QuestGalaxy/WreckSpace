@@ -14,43 +14,103 @@ import { addBox, buildVoxelSurfaceGeometry } from './voxel.js';
  */
 export function createVoxelShipModel(opts) {
   const voxelSize = opts.voxelSize ?? 5;
-  const mainColor = opts.shipData?.color ?? 0x44aaff;
+  const shipData = opts.shipData ?? {};
+  const shipId = shipData.id ?? 'balanced';
+  const mainColor = shipData.color ?? 0x44aaff;
 
   const group = new THREE.Group();
 
-  // Voxel model: build separate layers so we can tint materials.
+  // Voxel model layers
   const hull = new Set();
   const dark = new Set();
   const accent = new Set();
   const glass = new Set();
   const thruster = new Set();
 
-  // Fuselage
-  addBox(hull, -1, -1, -6, 1, 1, 6);
-  addBox(hull, -2, -1, -3, 2, 1, 2);
-  // Nose
-  addBox(hull, -1, -1, 7, 1, 1, 10);
-  addBox(accent, -1, -2, 6, 1, -2, 10);
+  let engineVoxelOffsets = [];
 
-  // Wings
-  addBox(hull, -6, 0, -2, -3, 0, 4);
-  addBox(hull, 3, 0, -2, 6, 0, 4);
-  addBox(dark, -7, 0, -1, -6, 0, 3);
-  addBox(dark, 6, 0, -1, 7, 0, 3);
+  if (shipId === 'scout') {
+    // SCOUT: Sleek, needle-like, forward-swept wings
+    // Fuselage
+    addBox(hull, -1, -1, -4, 1, 1, 4);
+    addBox(hull, -1, 0, 5, 1, 0, 8); // Long nose
+    
+    // Wings (Forward swept)
+    addBox(hull, -4, 0, 2, -2, 0, 4);
+    addBox(hull, 2, 0, 2, 4, 0, 4);
+    addBox(dark, -5, 0, 3, -4, 0, 5);
+    addBox(dark, 4, 0, 3, 5, 0, 5);
+    
+    // Cockpit (Small, sleek)
+    addBox(glass, -1, 1, 1, 1, 2, 4);
+    
+    // Engine (Single large central)
+    addBox(dark, -1, -1, -6, 1, 1, -4);
+    addBox(thruster, 0, 0, -7, 0, 0, -7);
+    engineVoxelOffsets = [new THREE.Vector3(0, 0, -8)];
 
-  // Cockpit
-  addBox(glass, -1, 2, 0, 1, 3, 3);
-  addBox(dark, -1, 1, -2, 1, 1, -1);
+  } else if (shipId === 'miner') {
+    // MINER: Bulky, industrial, multi-engine
+    // Main Body (Thick block)
+    addBox(hull, -3, -2, -4, 3, 2, 4);
+    addBox(dark, -4, -1, -2, -3, 1, 2); // Side pods
+    addBox(dark, 3, -1, -2, 4, 1, 2);
+    
+    // Nose (Flat, heavy)
+    addBox(hull, -2, -1, 5, 2, 1, 6);
+    addBox(accent, -2, -2, 4, 2, -2, 7); // Under-nose tools/plating
+    
+    // Cockpit (High visibility, boxy)
+    addBox(glass, -2, 2, 0, 2, 4, 3);
+    
+    // Engines (Four corner engines)
+    addBox(dark, -3, 1, -6, -2, 2, -4);
+    addBox(dark, 2, 1, -6, 3, 2, -4);
+    addBox(dark, -3, -2, -6, -2, -1, -4);
+    addBox(dark, 2, -2, -6, 3, -1, -4);
+    
+    addBox(thruster, -2.5, 1.5, -7, -2.5, 1.5, -7);
+    addBox(thruster, 2.5, 1.5, -7, 2.5, 1.5, -7);
+    addBox(thruster, -2.5, -1.5, -7, -2.5, -1.5, -7);
+    addBox(thruster, 2.5, -1.5, -7, 2.5, -1.5, -7);
+    
+    engineVoxelOffsets = [
+      new THREE.Vector3(-2.5, 1.5, -8),
+      new THREE.Vector3(2.5, 1.5, -8),
+      new THREE.Vector3(-2.5, -1.5, -8),
+      new THREE.Vector3(2.5, -1.5, -8)
+    ];
 
-  // Engines
-  addBox(dark, -3, -1, -8, -1, 1, -6);
-  addBox(dark, 1, -1, -8, 3, 1, -6);
-  addBox(thruster, -2, 0, -9, -2, 0, -9);
-  addBox(thruster, 2, 0, -9, 2, 0, -9);
+  } else {
+    // BALANCED (Standard fighter)
+    // Fuselage
+    addBox(hull, -1, -1, -6, 1, 1, 6);
+    addBox(hull, -2, -1, -3, 2, 1, 2);
+    // Nose
+    addBox(hull, -1, -1, 7, 1, 1, 10);
+    addBox(accent, -1, -2, 6, 1, -2, 10);
 
-  // Guns
-  addBox(accent, -6, 0, 5, -5, 0, 7);
-  addBox(accent, 5, 0, 5, 6, 0, 7);
+    // Wings
+    addBox(hull, -6, 0, -2, -3, 0, 4);
+    addBox(hull, 3, 0, -2, 6, 0, 4);
+    addBox(dark, -7, 0, -1, -6, 0, 3);
+    addBox(dark, 6, 0, -1, 7, 0, 3);
+
+    // Cockpit
+    addBox(glass, -1, 2, 0, 1, 3, 3);
+    addBox(dark, -1, 1, -2, 1, 1, -1);
+
+    // Engines
+    addBox(dark, -3, -1, -8, -1, 1, -6);
+    addBox(dark, 1, -1, -8, 3, 1, -6);
+    addBox(thruster, -2, 0, -9, -2, 0, -9);
+    addBox(thruster, 2, 0, -9, 2, 0, -9);
+    
+    engineVoxelOffsets = [
+      new THREE.Vector3(-2, 0, -10),
+      new THREE.Vector3(2, 0, -10)
+    ];
+  }
 
   const hullMesh = new THREE.Mesh(
     buildVoxelSurfaceGeometry(hull, { voxelSize, faceShading: true }),
@@ -75,8 +135,7 @@ export function createVoxelShipModel(opts) {
 
   group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh);
 
-  // Center geometry around origin and lift so the ship sits on y=0.
-  // NOTE: do this by translating geometries, not `group.position`, so callers can position freely.
+  // Center geometry
   const box0 = new THREE.Box3().setFromObject(group);
   const center0 = box0.getCenter(new THREE.Vector3());
   const tx = -center0.x;
@@ -92,10 +151,9 @@ export function createVoxelShipModel(opts) {
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
 
-  const engineOffsets = [
-    new THREE.Vector3(-2, 0, -10).multiplyScalar(voxelSize).add(new THREE.Vector3(tx, ty, tz)),
-    new THREE.Vector3(2, 0, -10).multiplyScalar(voxelSize).add(new THREE.Vector3(tx, ty, tz))
-  ];
+  const engineOffsets = engineVoxelOffsets.map(v => 
+    v.clone().multiplyScalar(voxelSize).add(new THREE.Vector3(tx, ty, tz))
+  );
 
   // Muzzle a bit ahead of the nose.
   const muzzleOffset = new THREE.Vector3(0, size.y * 0.42, box.max.z + voxelSize * 0.6);

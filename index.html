@@ -125,8 +125,8 @@
             <!-- Bottom Left: Systems / Hints -->
             <div id="hud-bottom-left" class="hud-panel">
                 <div class="system-status">SYSTEMS ONLINE</div>
-                 <div id="controls-hint" class="controls-hint">
-                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | SPACE: Fire | F: Warp to Base
+                <div id="controls-hint" class="controls-hint">
+                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | CLICK/SPACE/X: Fire | SHIFT/RMB: Precision | F: Warp to Base
                 </div>
             </div>
 
@@ -137,6 +137,8 @@
                 <div class="crosshair-line horizontal"></div>
                 <div class="crosshair-line vertical"></div>
             </div>
+            <!-- Lock marker: shows locked target center without stealing the player's crosshair. -->
+            <div id="lock-pip" aria-hidden="true"></div>
 
             <div id="messages"></div>
         </div>

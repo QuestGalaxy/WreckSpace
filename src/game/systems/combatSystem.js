@@ -89,43 +89,16 @@ export class CombatSystem {
     const updateLockedHud = () => {
       if (!g.hud) return;
 
-      // Convert NDC to screen-space px.
+      // Crosshair stays where the player aims (HUD-only), but we show a separate lock marker
+      // at the target center so lock still feels "real".
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const centerX = w * 0.5;
-      const centerY = h * 0.5;
       const targetX = (this._targetPos.x * 0.5 + 0.5) * w;
       const targetY = (this._targetPos.y * -0.5 + 0.5) * h;
-
-      // Distant targets tend to jitter more (float precision + camera shake).
-      // Add distance-based smoothing and a slight "pull to center" so lock feels softer.
-      const depth = Math.max(0.0001, -this._camSpace.z); // camera-space forward distance (positive)
-      const depthNear = 80 * ws;
-      const depthFar = maxDist;
-      const depthT = THREE.MathUtils.clamp((depth - depthNear) / Math.max(0.0001, depthFar - depthNear), 0, 1);
-
-      const pullToCenterNear = 0.0;
-      const pullToCenterFar = 0.18;
-      const pull = THREE.MathUtils.lerp(pullToCenterNear, pullToCenterFar, depthT);
-      const desiredX = THREE.MathUtils.lerp(targetX, centerX, pull);
-      const desiredY = THREE.MathUtils.lerp(targetY, centerY, pull);
-
-      // Exponential smoothing (frame-rate independent).
-      const followHzNear = 18;
-      const followHzFar = 10;
-      const followHz = THREE.MathUtils.lerp(followHzNear, followHzFar, depthT);
-      const a = 1 - Math.exp(-Math.max(0, dtSec) * followHz);
-
-      if (this._crosshairX == null || this._crosshairY == null) {
-        this._crosshairX = desiredX;
-        this._crosshairY = desiredY;
-      } else {
-        this._crosshairX = THREE.MathUtils.lerp(this._crosshairX, desiredX, a);
-        this._crosshairY = THREE.MathUtils.lerp(this._crosshairY, desiredY, a);
-      }
+      g.hud.lockPipSetVisible(true);
+      g.hud.lockPipSetScreenPos(targetX, targetY);
 
       g.hud.crosshairSetLocked(true);
-      g.hud.crosshairSetScreenPos(this._crosshairX, this._crosshairY);
       g.hud.crosshairSetLockedTransform();
     };
 
@@ -135,6 +108,7 @@ export class CombatSystem {
       this._crosshairX = null;
       this._crosshairY = null;
       if (!g.hud) return;
+      if (g.hud.lockPipSetVisible) g.hud.lockPipSetVisible(false);
       if (g.hud.crosshairUnlockAndSnapToCenter) g.hud.crosshairUnlockAndSnapToCenter();
       else {
         g.hud.crosshairSetLocked(false);
@@ -213,6 +187,7 @@ export class CombatSystem {
     } else {
       this._crosshairX = null;
       this._crosshairY = null;
+      if (g.hud.lockPipSetVisible) g.hud.lockPipSetVisible(false);
       g.hud.crosshairSetLocked(false);
       g.hud.crosshairResetToCenter();
     }
@@ -291,8 +266,16 @@ export class CombatSystem {
       const t = g.world.transform.get(g.currentTargetEntityId);
       if (t) {
         this._targetWorldPos.set(t.x, t.y, t.z);
-        forward = this._dirToObj.subVectors(this._targetWorldPos, this._bulletPos).normalize();
-        bullet.lookAt(this._targetWorldPos);
+        const precision = !!g.keys?.ShiftLeft || !!g.keys?.ShiftRight || !!g._precisionHeld;
+        if (!precision) {
+          // Locked fire: auto-aim to target center (strong lock).
+          forward = this._dirToObj.subVectors(this._targetWorldPos, this._bulletPos).normalize();
+          bullet.lookAt(this._targetWorldPos);
+        } else {
+          // Precision fire: ignore auto-aim and shoot where the ship is pointing.
+          forward = this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat).normalize();
+          bullet.quaternion.copy(this._playerQuat);
+        }
       } else {
         forward = this._forward.set(0, 0, 1).applyQuaternion(this._playerQuat);
         bullet.quaternion.copy(this._playerQuat);

@@ -48,6 +48,10 @@ export class HudController {
     this.addonSlotsRoot = doc.getElementById('addon-slots');
 
     this.crosshair = doc.getElementById('crosshair-container');
+    this.lockPip = doc.getElementById('lock-pip');
+    // UI tuning: by default, keep the crosshair slightly above exact screen center so it doesn't sit on the ship.
+    // Negative Y moves it upward.
+    this.crosshairOffsetPx = { x: 0, y: -42 };
 
     this.baseMarker = doc.getElementById('base-marker');
     this.baseMarkerDist = this.baseMarker?.querySelector('.marker-dist') ?? null;
@@ -312,14 +316,18 @@ export class HudController {
 
   crosshairSetScreenPos(x, y) {
     if (!this.crosshair) return;
-    this.crosshair.style.left = `${x}px`;
-    this.crosshair.style.top = `${y}px`;
+    const ox = this.crosshairOffsetPx?.x ?? 0;
+    const oy = this.crosshairOffsetPx?.y ?? 0;
+    this.crosshair.style.left = `${x + ox}px`;
+    this.crosshair.style.top = `${y + oy}px`;
   }
 
   crosshairResetToCenter() {
     if (!this.crosshair) return;
-    this.crosshair.style.left = '50%';
-    this.crosshair.style.top = '50%';
+    const ox = this.crosshairOffsetPx?.x ?? 0;
+    const oy = this.crosshairOffsetPx?.y ?? 0;
+    this.crosshair.style.left = ox ? `calc(50% + ${ox}px)` : '50%';
+    this.crosshair.style.top = oy ? `calc(50% + ${oy}px)` : '50%';
     this.crosshair.style.transform = 'translate(-50%, -50%)';
   }
 
@@ -331,8 +339,10 @@ export class HudController {
     const prevTransition = this.crosshair.style.transition;
     this.crosshair.style.transition = 'none';
     this.crosshair.classList.remove('locked');
-    this.crosshair.style.left = '50%';
-    this.crosshair.style.top = '50%';
+    const ox = this.crosshairOffsetPx?.x ?? 0;
+    const oy = this.crosshairOffsetPx?.y ?? 0;
+    this.crosshair.style.left = ox ? `calc(50% + ${ox}px)` : '50%';
+    this.crosshair.style.top = oy ? `calc(50% + ${oy}px)` : '50%';
     this.crosshair.style.transform = 'translate(-50%, -50%)';
 
     // Force style flush so the snap happens before we restore transitions.
@@ -361,6 +371,17 @@ export class HudController {
     setTimeout(() => this.crosshair?.classList.remove('hit'), 150);
   }
 
+  lockPipSetVisible(visible) {
+    if (!this.lockPip) return;
+    this.lockPip.classList.toggle('visible', !!visible);
+  }
+
+  lockPipSetScreenPos(x, y) {
+    if (!this.lockPip) return;
+    this.lockPip.style.left = `${x}px`;
+    this.lockPip.style.top = `${y}px`;
+  }
+
   /**
    * @param {{ x: number, y: number, angleDeg: number, distM: number, offScreen: boolean }} s
    */
@@ -378,5 +399,17 @@ export class HudController {
     this.baseMarker.style.left = `${s.x}px`;
     this.baseMarker.style.top = `${s.y}px`;
     this.baseMarker.style.opacity = '1';
+  }
+
+  /**
+   * Optional runtime tuning.
+   * @param {number} x
+   * @param {number} y
+   */
+  setCrosshairOffsetPx(x, y) {
+    this.crosshairOffsetPx = { x: Number(x) || 0, y: Number(y) || 0 };
+    // Apply immediately if we're currently centered.
+    // (If locked, CombatSystem will keep pushing px positions anyway.)
+    this.crosshairResetToCenter();
   }
 }

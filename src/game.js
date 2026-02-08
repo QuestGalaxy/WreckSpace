@@ -80,6 +80,10 @@ export class Game {
         // - 'subtle' is lighter for performance/clarity in crowded scenes.
         this.hitFeedbackProfile = deps.hitFeedbackProfile ?? 'cinematic';
         this.canvas = document.getElementById('game-canvas');
+
+        // Planet "light beam" (visual only). Stored separately so we can animate without coupling to gameplay.
+        this.planetBeams = [];
+        this._planetBeamTexture = null;
         
         // V1 state
         this.stats = {
@@ -289,7 +293,7 @@ export class Game {
             };
 
             if (this.hud?.setControlsHint) {
-                this.hud.setControlsHint('WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | SPACE: Fire');
+                this.hud.setControlsHint('WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | CLICK/SPACE/X: Fire | SHIFT/RMB: Precision');
             }
             if (this.hud?.setBaseMarkerVisible) this.hud.setBaseMarkerVisible(false);
 
@@ -307,8 +311,41 @@ export class Game {
         window.addEventListener('keydown', this._onKeyDown);
         this._onResize = () => this.onWindowResize();
         window.addEventListener('resize', this._onResize);
-        this._onMouseDown = () => this.shoot();
-        window.addEventListener('mousedown', this._onMouseDown);
+
+        // Fire can be held (mouse/touch). This also avoids "can't shoot while moving" on some keyboards
+        // due to rollover/ghosting (W + Space not registering together).
+        this._fireHeld = false;
+        this._precisionHeld = false;
+        this._onPointerDown = (e) => {
+            if (!e) return;
+            // RMB: precision aim (no fire)
+            if (typeof e.button === 'number' && e.button === 2) {
+                this._precisionHeld = true;
+                return;
+            }
+            // LMB: hold-to-fire
+            if (typeof e.button === 'number' && e.button !== 0) return;
+            this._fireHeld = true;
+            this.shoot();
+        };
+        this._onPointerUp = (e) => {
+            if (e && typeof e.button === 'number' && e.button === 2) this._precisionHeld = false;
+            if (e && typeof e.button === 'number' && e.button === 0) this._fireHeld = false;
+            // Some browsers report -1; be safe.
+            if (!e || e.button == null) {
+                this._fireHeld = false;
+                this._precisionHeld = false;
+            }
+        };
+        this._onContextMenu = (e) => {
+            // Prevent the browser menu while using RMB for precision aim.
+            e.preventDefault();
+        };
+        window.addEventListener('pointerdown', this._onPointerDown);
+        window.addEventListener('pointerup', this._onPointerUp);
+        window.addEventListener('pointercancel', this._onPointerUp);
+        window.addEventListener('blur', this._onPointerUp);
+        window.addEventListener('contextmenu', this._onContextMenu);
 
         // Start Loop
         requestAnimationFrame((t) => this.animate(t));
@@ -532,6 +569,9 @@ export class Game {
         this.scene.add(planet);
         this.objects.push(planet);
 
+        // Stylized beam to improve depth and readability (matches the look we tested earlier).
+        this._addPlanetBeam(planet, color);
+
         const glow = new THREE.Sprite(
             new THREE.SpriteMaterial({
                 map: this.vfx.createGlowTexture('#ffffff'),
@@ -572,6 +612,131 @@ export class Game {
             if (kind === 'asteroid_small') this._spawnTestAreaAsteroid();
             else if (kind === 'planet_mini') this._spawnTestAreaPlanet();
         }, 1200);
+    }
+
+    _getPlanetBeamTexture() {
+        if (this._planetBeamTexture) return this._planetBeamTexture;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Vertical falloff (brighter near the top, soft fade near bottom).
+        const vg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        vg.addColorStop(0.00, 'rgba(255,255,255,0.00)');
+        vg.addColorStop(0.10, 'rgba(255,255,255,0.70)');
+        vg.addColorStop(0.55, 'rgba(255,255,255,0.22)');
+        vg.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Soft side edges so the cone reads like volumetric light.
+        ctx.globalCompositeOperation = 'destination-in';
+        const rg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.05, canvas.width / 2, canvas.height / 2, canvas.width * 0.55);
+        rg.addColorStop(0.0, 'rgba(255,255,255,1.0)');
+        rg.addColorStop(0.65, 'rgba(255,255,255,0.55)');
+        rg.addColorStop(1.0, 'rgba(255,255,255,0.00)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.globalCompositeOperation = 'source-over';
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(1, 1.35);
+        this._planetBeamTexture = tex;
+        return tex;
+    }
+
+    /**
+     * Visual only: adds a stylized light beam (spot + additive cone) around a planet to improve readability.
+     * @param {THREE.Object3D} planet
+     * @param {number} colorHex
+     */
+    _addPlanetBeam(planet, colorHex = 0xffffff) {
+        if (!this.scene || !planet) return;
+
+        // Avoid duplicates (respawns).
+        if (planet.userData?._hasBeam) return;
+        planet.userData._hasBeam = true;
+
+        const ws = this.worldScale ?? 1;
+        const geoR = planet.geometry?.boundingSphere?.radius ?? 1;
+        const r = Math.max(1, (planet.scale?.x ?? 1) * geoR);
+
+        const height = Math.max(140 * ws, r * 2.9);
+        const radiusTop = Math.max(50 * ws, r * 1.12);
+        const radiusBottom = Math.max(22 * ws, r * 0.50);
+
+        const group = new THREE.Group();
+        group.position.copy(planet.position);
+
+        // Beam should light the whole planet (not just a patch): use a wide spot + a big soft fill.
+        const spot = new THREE.SpotLight(0xffffff, 1.25, Math.max(height * 2.4, r * 6.0), Math.PI * 0.55, 0.65, 1.2);
+        spot.color.setHex(colorHex);
+        spot.position.set(0, height * 0.55, 0);
+        spot.target.position.set(0, 0, 0);
+        group.add(spot);
+        group.add(spot.target);
+
+        // Soft fill light so far-side voxels still read (keeps "beam" feeling but lights the full body).
+        const fill = new THREE.PointLight(0xffffff, 0.85, Math.max(height * 2.8, r * 8.0), 2);
+        fill.color.setHex(colorHex);
+        fill.position.set(0, height * 0.15, 0);
+        group.add(fill);
+
+        // Very subtle rim from below to avoid a dead-black underside when the main key is above.
+        const under = new THREE.PointLight(0xd6ecff, 0.22, Math.max(height * 2.2, r * 7.0), 2);
+        under.position.set(0, -height * 0.35, 0);
+        group.add(under);
+
+        // Volumetric cone (fake) with scrolling texture.
+        const tex = this._getPlanetBeamTexture();
+        const coneGeo = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 18, 1, true);
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            map: tex,
+            transparent: true,
+            opacity: 0.20,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+        const cone = new THREE.Mesh(coneGeo, mat);
+        cone.position.set(0, height * 0.04, 0);
+        group.add(cone);
+
+        // Warm-ish rim to make the beam feel like it wraps the surface.
+        const rimGeo = new THREE.RingGeometry(radiusBottom * 0.75, radiusTop * 0.92, 40, 1);
+        const rimMat = new THREE.MeshBasicMaterial({
+            color: colorHex,
+            transparent: true,
+            opacity: 0.10,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+        const rim = new THREE.Mesh(rimGeo, rimMat);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.set(0, 0.01, 0);
+        group.add(rim);
+
+        // Not parented to the planet so it doesn't spin with the mesh.
+        this.scene.add(group);
+
+        // Static orientation: slight random yaw so beams across planets don't look copy-pasted,
+        // but no continuous animation (user preference: "atmosphere beam", not moving).
+        group.rotation.y = (Math.random() - 0.5) * 0.5;
+        group.rotation.x = (Math.random() - 0.5) * 0.12;
+
+        const baseOpacity = 0.20;
+        mat.opacity = baseOpacity;
+        if (tex) tex.offset.set(0, 0);
+        if (spot) spot.intensity = 1.25;
+        this.planetBeams.push({ target: planet, group, cone, mat, tex, spot, baseOpacity });
     }
 
     resumeFromBase() {
@@ -1482,6 +1647,8 @@ export class Game {
             this.scene.add(planet);
             this.objects.push(planet);
 
+            this._addPlanetBeam(planet, color);
+
             this._registerDistanceLabel(planet, {
                 kind: 'planet',
                 prefix: `P${i + 1}`,
@@ -1588,6 +1755,12 @@ export class Game {
         if (this.isPaused) return;
         this._simTimeSec += dtSec;
         const now = this._simTimeSec;
+
+        // Hold-to-fire support (mouse/touch + backup key).
+        // Note: Space key is still handled on keydown for immediate response.
+        if (this._fireHeld || this.keys?.Space || this.keys?.KeyX) {
+            this.combat.shoot();
+        }
 
         // Order matters:
         // 1) movement updates player transform
@@ -1825,7 +1998,11 @@ export class Game {
         }
         if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
         if (this._onResize) window.removeEventListener('resize', this._onResize);
-        if (this._onMouseDown) window.removeEventListener('mousedown', this._onMouseDown);
+        if (this._onPointerDown) window.removeEventListener('pointerdown', this._onPointerDown);
+        if (this._onPointerUp) window.removeEventListener('pointerup', this._onPointerUp);
+        if (this._onPointerUp) window.removeEventListener('pointercancel', this._onPointerUp);
+        if (this._onPointerUp) window.removeEventListener('blur', this._onPointerUp);
+        if (this._onContextMenu) window.removeEventListener('contextmenu', this._onContextMenu);
 
         if (this.composer && this.composer.dispose) this.composer.dispose();
         if (this.renderer) this.renderer.dispose();

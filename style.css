@@ -404,51 +404,67 @@ body {
     display: block; /* Override flex from .screen */
 }
 
+#hud::before {
+    /* Subtle scanline + vignette to make HUD feel "in-cockpit" instead of a website overlay. */
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 50% 40%, rgba(120, 255, 255, 0.06) 0%, rgba(0, 0, 0, 0.0) 55%, rgba(0, 0, 0, 0.20) 100%),
+        repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 0px, rgba(255, 255, 255, 0.025) 1px, rgba(0, 0, 0, 0.0) 3px, rgba(0, 0, 0, 0.0) 6px);
+    opacity: 0.55;
+    mix-blend-mode: screen;
+}
+
 .hud-panel {
     position: absolute;
-    padding: 15px 25px;
-    background: linear-gradient(135deg, rgba(0, 20, 40, 0.8) 0%, rgba(0, 10, 20, 0.6) 100%);
-    border: 1px solid rgba(0, 255, 255, 0.3);
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.1), inset 0 0 20px rgba(0, 255, 255, 0.05);
-    backdrop-filter: blur(4px);
-    transform: skewX(-10deg); /* Sci-fi Angle */
-    pointer-events: auto;
+    padding: 10px 12px;
+    background:
+        linear-gradient(180deg, rgba(4, 10, 18, 0.55) 0%, rgba(4, 10, 18, 0.22) 100%);
+    border: 1px solid rgba(140, 250, 255, 0.16);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.35),
+        0 0 18px rgba(90, 255, 255, 0.06),
+        inset 0 0 22px rgba(60, 220, 255, 0.05);
+    border-radius: 10px;
+    clip-path: polygon(0% 0%, calc(100% - 12px) 0%, 100% 12px, 100% 100%, 12px 100%, 0% calc(100% - 12px));
+    backdrop-filter: blur(2px);
+    transform: none;
+    pointer-events: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 /* Fix text skew inside panels */
 .hud-panel > * {
-    transform: skewX(10deg); 
+    transform: none;
 }
 
 /* CORNER POSITIONS */
 #hud-top-left {
-    top: 30px;
-    left: 30px;
-    border-left: 4px solid #0cf;
-    border-bottom-right-radius: 20px;
+    top: 16px;
+    left: 16px;
 }
 
 #hud-top-right {
-    top: 30px;
-    right: 30px;
-    border-right: 4px solid #ffd700;
-    border-bottom-left-radius: 20px;
+    top: 16px;
+    right: 16px;
     text-align: right;
 }
 
 #hud-bottom-left {
-    bottom: 30px;
-    left: 30px;
-    border-left: 4px solid #0cf;
-    border-top-right-radius: 20px;
+    bottom: 16px;
+    left: 16px;
+    max-width: min(720px, calc(100vw - 32px));
+    opacity: 0.80;
 }
 
 /* CONTENT STYLING */
 .hud-row {
     display: flex;
     align-items: center;
-    gap: 15px;
-    margin-bottom: 8px;
+    gap: 10px;
+    margin-bottom: 6px;
 }
 
 .hud-row.right-align {
@@ -456,38 +472,39 @@ body {
 }
 
 .hud-label {
-    font-size: 0.8rem;
-    color: #88aadd;
-    letter-spacing: 2px;
-    font-weight: 600;
+    font-size: 0.62rem;
+    color: rgba(190, 235, 255, 0.78);
+    letter-spacing: 3px;
+    font-weight: 700;
+    text-transform: uppercase;
 }
 
 .hud-value {
-    font-family: 'Courier New', Courier, monospace; /* Monospace for numbers */
-    font-size: 1.5rem;
-    color: #fff;
-    font-weight: bold;
-    text-shadow: 0 0 5px #0cf;
+    font-size: 1.05rem;
+    color: rgba(240, 252, 255, 0.96);
+    font-weight: 800;
+    text-shadow: 0 0 8px rgba(80, 240, 255, 0.22);
 }
 
 .hud-value.money {
     color: #ffd700;
-    text-shadow: 0 0 5px #ffaa00;
+    text-shadow: 0 0 8px rgba(255, 170, 0, 0.22);
 }
 
 /* BARS */
 .bar-container {
-    width: 200px;
-    height: 10px;
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    transform: skewX(-20deg);
+    width: 160px;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(160, 230, 255, 0.16);
     overflow: hidden;
+    border-radius: 4px;
+    transform: none;
 }
 
 .bar-container.small {
-    width: 150px;
-    height: 6px;
+    width: 140px;
+    height: 5px;
     margin-left: auto; /* Right align */
 }
 
@@ -495,7 +512,7 @@ body {
     height: 100%;
     width: 100%;
     background: linear-gradient(90deg, #0088ff, #00ffff);
-    box-shadow: 0 0 10px #00ffff;
+    box-shadow: 0 0 12px rgba(0, 255, 255, 0.35);
     transition: width 0.2s ease-out;
 }
 
@@ -506,17 +523,32 @@ body {
 
 /* BOTTOM TEXT */
 .system-status {
-    color: #0cf;
-    font-size: 0.7rem;
-    letter-spacing: 3px;
-    margin-bottom: 5px;
-    opacity: 0.8;
+    color: rgba(140, 250, 255, 0.92);
+    font-size: 0.58rem;
+    letter-spacing: 4px;
+    margin-bottom: 6px;
+    opacity: 0.85;
+    text-transform: uppercase;
 }
 
 .controls-hint {
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.6);
-    letter-spacing: 1px;
+    font-size: 0.62rem;
+    color: rgba(220, 245, 255, 0.62);
+    letter-spacing: 0.5px;
+    line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+    #hud-top-left, #hud-top-right, #hud-bottom-left {
+        transform: scale(0.92);
+        transform-origin: top left;
+    }
+    #hud-top-right {
+        transform-origin: top right;
+    }
+    .bar-container {
+        width: 132px;
+    }
 }
 
 /* CROSSHAIR */
@@ -531,6 +563,37 @@ body {
     opacity: 0.86;
     transition: transform 120ms ease-out, opacity 120ms ease-out;
     will-change: left, top, transform;
+}
+
+.lock-pip,
+#lock-pip {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border: 1px solid rgba(255, 90, 90, 0.55);
+    box-shadow: 0 0 10px rgba(255, 90, 90, 0.30);
+    transform: translate(-50%, -50%) rotate(45deg);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+    will-change: left, top, opacity;
+    z-index: 9;
+}
+
+#lock-pip::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    background: rgba(255, 150, 150, 0.90);
+    box-shadow: 0 0 6px rgba(255, 140, 140, 0.65);
+    transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+#lock-pip.visible {
+    opacity: 0.92;
 }
 
 .crosshair-ring {
@@ -588,7 +651,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    pointer-events: auto; /* Changed to auto so we can potentially interact, though mostly visual */
+    pointer-events: none;
     z-index: 10;
     transition: opacity 0.2s;
 }
@@ -618,17 +681,19 @@ body {
 */
 
 .marker-label {
-    font-size: 12px;
-    color: #00ff88;
-    font-weight: bold;
+    font-size: 11px;
+    color: rgba(140, 250, 255, 0.92);
+    font-weight: 800;
     margin-top: 4px;
-    text-shadow: 0 0 5px #00ff88;
+    text-shadow: 0 0 10px rgba(80, 240, 255, 0.22);
+    letter-spacing: 2px;
 }
 
 .marker-dist {
     font-size: 10px;
-    color: #fff;
-    font-family: monospace;
+    color: rgba(240, 252, 255, 0.82);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 1px;
 }
 
 /* CROSSHAIR ANIMATIONS */
@@ -690,18 +755,18 @@ body {
 }
 
 .message {
-    background: rgba(0, 20, 40, 0.8);
-    border: 1px solid #0cf;
-    color: #fff;
-    padding: 10px 20px;
+    background: rgba(4, 10, 18, 0.55);
+    border: 1px solid rgba(140, 250, 255, 0.18);
+    color: rgba(240, 252, 255, 0.96);
+    padding: 8px 14px;
     margin-bottom: 10px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
+    border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     text-transform: uppercase;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
     animation: fadeOut 3s forwards;
     display: inline-block;
-    box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+    box-shadow: 0 0 18px rgba(90, 255, 255, 0.06), inset 0 0 22px rgba(60, 220, 255, 0.05);
 }
 
 #base-menu {

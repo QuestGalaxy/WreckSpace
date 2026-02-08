@@ -16,10 +16,10 @@ export class EnvironmentSystem {
    * @param {number} nowSec
    */
   update(dtSec, nowSec) {
-    void nowSec;
     const g = this.game;
     this.updateObjectRotation(dtSec);
     this.syncObjectsFromWorld();
+    this.updatePlanetBeams(dtSec, nowSec);
     this.updateHealthBarLayouts();
     this.updateSpaceDust();
     this.updateRetroBackdrop();
@@ -203,6 +203,29 @@ export class EnvironmentSystem {
       if (entry.baseScale) {
         entry.sprite.scale.set(entry.baseScale.x * mul, entry.baseScale.y * mul, entry.baseScale.z);
       }
+    }
+  }
+
+  updatePlanetBeams(dtSec, nowSec) {
+    const g = this.game;
+    const beams = g.planetBeams ?? null;
+    if (!beams || beams.length === 0) return;
+    if (!g.scene) return;
+
+    // Static "atmosphere beam": no animation. We only follow the target position.
+    void dtSec;
+    void nowSec;
+    for (let i = beams.length - 1; i >= 0; i--) {
+      const b = beams[i];
+      const target = b?.target ?? null;
+      if (!target || !target.parent) {
+        if (b?.group) g.scene.remove(b.group);
+        beams.splice(i, 1);
+        continue;
+      }
+
+      target.getWorldPosition(this._tmpWorldPos);
+      b.group.position.copy(this._tmpWorldPos);
     }
   }
 }

@@ -26,6 +26,7 @@ export function createVoxelShipModel(opts) {
   const accent = new Set();
   const glass = new Set();
   const thruster = new Set();
+  const headlight = new Set();
 
   let engineVoxelOffsets = [];
 
@@ -34,6 +35,10 @@ export function createVoxelShipModel(opts) {
     // Fuselage
     addBox(hull, -1, -1, -4, 1, 1, 4);
     addBox(hull, -1, 0, 5, 1, 0, 8); // Long nose
+    
+    // Headlights (Small cyan dots on the nose)
+    addBox(headlight, -1, 0, 8, -1, 0, 8);
+    addBox(headlight, 1, 0, 8, 1, 0, 8);
     
     // Wings (Forward swept)
     addBox(hull, -4, 0, 2, -2, 0, 4);
@@ -59,6 +64,10 @@ export function createVoxelShipModel(opts) {
     // Nose (Flat, heavy)
     addBox(hull, -2, -1, 5, 2, 1, 6);
     addBox(accent, -2, -2, 4, 2, -2, 7); // Under-nose tools/plating
+    
+    // Headlights
+    addBox(headlight, -2, 1, 6, -2, 1, 6);
+    addBox(headlight, 2, 1, 6, 2, 1, 6);
     
     // Cockpit (High visibility, boxy)
     addBox(glass, -2, 2, 0, 2, 4, 3);
@@ -89,6 +98,10 @@ export function createVoxelShipModel(opts) {
     // Nose
     addBox(hull, -1, -1, 7, 1, 1, 10);
     addBox(accent, -1, -2, 6, 1, -2, 10);
+
+    // Headlights
+    addBox(headlight, -1, 1, 10, -1, 1, 10);
+    addBox(headlight, 1, 1, 10, 1, 1, 10);
 
     // Wings
     addBox(hull, -6, 0, -2, -3, 0, 4);
@@ -130,10 +143,24 @@ export function createVoxelShipModel(opts) {
   );
   const thrusterMesh = new THREE.Mesh(
     buildVoxelSurfaceGeometry(thruster, { voxelSize, faceShading: false }),
-    opts.voxLit({ color: opts.theme.ship.thruster, map: null, emissive: opts.theme.ship.thruster, emissiveIntensity: 2.2 })
+    opts.voxLit({ 
+      color: opts.theme.ship.thruster, 
+      map: null, 
+      emissive: 0xffaa00, // Bright yellow-orange core for hot lava look
+      emissiveIntensity: 4.5 // High intensity for a blinding heat effect
+    })
+  );
+  const headlightMesh = new THREE.Mesh(
+    buildVoxelSurfaceGeometry(headlight, { voxelSize, faceShading: false }),
+    opts.voxLit({ 
+      color: 0x00ffff, 
+      map: null, 
+      emissive: 0x00ffff, 
+      emissiveIntensity: 3.0 
+    })
   );
 
-  group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh);
+  group.add(hullMesh, darkMesh, accentMesh, glassMesh, thrusterMesh, headlightMesh);
 
   // Center geometry
   const box0 = new THREE.Box3().setFromObject(group);

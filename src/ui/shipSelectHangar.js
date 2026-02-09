@@ -58,7 +58,7 @@ export class ShipSelectHangar {
     this.voxelSize = 5.0;
     this.worldScale = this.voxelSize / 2.0;
     this.theme = {
-      ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0x66ccff }
+      ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0xff6600 } // Vibrant Orange Lava
     };
   }
 
@@ -331,7 +331,7 @@ export class ShipSelectHangar {
     this.scene.add(this._spotlight.target);
 
     // Add a point light at the ship's center for a "glow from within/under" effect
-    this._shipGlow = new THREE.PointLight(0x66ccff, 6.5, 300 * ws); // Even stronger glow
+    this._shipGlow = new THREE.PointLight(0xff8800, 8.0, 350 * ws); // Stronger, more orange lava glow
     this._shipGlow.position.set(0, 12 * this.voxelSize, 0);
     this.scene.add(this._shipGlow);
 
@@ -347,9 +347,9 @@ export class ShipSelectHangar {
       // Normalized Y from -225 to 225 -> 0 to 1
       const alpha = (y + 225 * ws) / (450 * ws);
       const intensity = Math.pow(alpha, 4.0); // Very sharp falloff to keep top clean
-      colors[i * 3] = 0.4 * intensity; // Bluer, more saturated
-      colors[i * 3 + 1] = 0.7 * intensity;
-      colors[i * 3 + 2] = 1.0 * intensity;
+      colors[i * 3] = 1.0 * intensity; // White hot top
+      colors[i * 3 + 1] = 0.6 * intensity; // Orange middle
+      colors[i * 3 + 2] = 0.2 * intensity; // Darker orange base
     }
     coneGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
@@ -368,9 +368,9 @@ export class ShipSelectHangar {
     // Add a secondary thinner "core" beam
     const coreGeo = new THREE.CylinderGeometry(2 * ws, 45 * ws, 420 * ws, 16, 1, true);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x88ddff,
+      color: 0xffaa44, // Orange-tinted core beam
       transparent: true,
-      opacity: 0.08,
+      opacity: 0.1, // Slightly more visible
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false

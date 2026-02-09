@@ -460,6 +460,13 @@ export class VfxSystem {
     if (!g.particles) g.particles = [];
 
     const isPlanet = type === 'planet';
+    const ws = g.worldScale ?? 1;
+
+    // IMPORTANT: `size` can be extremely large (large planets). Scaling meshes is cheap,
+    // but spawning particles proportional to size is not. We decouple "visual scale" from
+    // "particle budget" to avoid huge frame spikes.
+    const visualSize = Math.max(0.001, size ?? 1);
+    const energy = THREE.MathUtils.clamp(visualSize / Math.max(1, 260 * ws), 0.6, 10.0); // normalized intensity for counts
 
     // 1. Core Shockwave (Expanding slab; voxel-friendly)
     const ringGeo = new THREE.BoxGeometry(1, 1, 0.25);
@@ -475,7 +482,7 @@ export class VfxSystem {
     g.scene.add(ring);
 
     const ringLife = isPlanet ? 80 : 40;
-    const baseScale = size * (isPlanet ? 1.2 : 0.9);
+    const baseScale = visualSize * (isPlanet ? 1.2 : 0.9);
     ring.scale.set(baseScale, baseScale, 1);
     ring.userData = {
       isShockwave: true,
@@ -496,26 +503,33 @@ export class VfxSystem {
     }
 
     // 2. Fireballs
-    const fireballCount = isPlanet ? 25 : 5;
+    const fireballCount = isPlanet
+      ? clamp(Math.floor(8 + energy * 1.6), 10, 26)
+      : clamp(Math.floor(3 + energy * 0.9), 3, 10);
     for (let i = 0; i < fireballCount; i++) {
       const color = isPlanet ? (Math.random() > 0.5 ? 0xff0000 : 0xffaa00) : 0xffffff;
-      const radius = size * (isPlanet ? 0.3 : 0.2);
+      const radius = visualSize * (isPlanet ? 0.28 : 0.20);
       const fireball = this.spawnFireball(position, radius, color, true);
 
-      const dir = new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize();
-      fireball.userData.velocity.copy(dir).multiplyScalar(Math.random() * size * (isPlanet ? 0.1 : 0.3));
+      this._tmpDir.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize();
+      // Cap velocities so huge planets don't create absurdly fast particles.
+      const velSize = Math.min(visualSize, 1200 * ws);
+      fireball.userData.velocity.copy(this._tmpDir).multiplyScalar(Math.random() * velSize * (isPlanet ? 0.10 : 0.26));
     }
 
     // 3. High Velocity Sparks
-    const sparkCount = Math.floor(size * (isPlanet ? 30 : 15));
+    const sparkCount = isPlanet
+      ? clamp(Math.floor(120 + energy * 55), 140, 700)
+      : clamp(Math.floor(50 + energy * 25), 60, 320);
     for (let i = 0; i < sparkCount; i++) {
       const sparkSize = isPlanet ? 0.5 : 0.2;
       const sparkColor = isPlanet ? 0xff8800 : 0xffdd44;
       const p = this.spawnSpark(position, sparkSize, sparkColor);
+      const velSize = Math.min(visualSize, 900 * ws);
       p.userData.velocity.set(
-        (Math.random() - 0.5) * size * (isPlanet ? 1.5 : 2.5),
-        (Math.random() - 0.5) * size * (isPlanet ? 1.5 : 2.5),
-        (Math.random() - 0.5) * size * (isPlanet ? 1.5 : 2.5)
+        (Math.random() - 0.5) * velSize * (isPlanet ? 0.85 : 1.15),
+        (Math.random() - 0.5) * velSize * (isPlanet ? 0.85 : 1.15),
+        (Math.random() - 0.5) * velSize * (isPlanet ? 0.85 : 1.15)
       );
     }
   }

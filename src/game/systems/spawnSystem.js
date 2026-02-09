@@ -614,7 +614,8 @@ export class SpawnSystem {
       this._tmpDir.copy(debris.position).sub(obj.position).normalize();
       this._tmpDir.addScaledVector(velN, 0.25).addScaledVector(this._tmpW, 0.25).normalize();
 
-      const speed = (isPlanet ? 0.06 : 0.12) * (obj.scale.x ?? 1) + (8.5 * ws);
+      // Huge planets have huge scale; cap speed to keep the explosion readable and avoid perf spikes.
+      const speed = Math.min((isPlanet ? 0.06 : 0.12) * (obj.scale.x ?? 1) + (8.5 * ws), (isPlanet ? 70 : 95) * ws);
       const life = (isPlanet ? 180 : 120) + Math.random() * (isPlanet ? 160 : 80);
       debris.userData = {
         isVoxelDebris: true,
@@ -670,7 +671,8 @@ export class SpawnSystem {
       this._tmpDir.addScaledVector(this._tmpW, 0.45).normalize();
 
       // Big explosion should still read \"chunky\", but not eject cubes into infinity.
-      const speed = (isPlanet ? 0.05 : 0.10) * (obj.scale.x ?? 1) + (5.5 * ws);
+      // Huge planets have huge scale; cap speed to keep the explosion readable and avoid perf spikes.
+      const speed = Math.min((isPlanet ? 0.05 : 0.10) * (obj.scale.x ?? 1) + (5.5 * ws), (isPlanet ? 55 : 85) * ws);
       const life = (isPlanet ? 140 : 95) + Math.random() * (isPlanet ? 120 : 70);
       debris.userData = {
         isVoxelDebris: true,

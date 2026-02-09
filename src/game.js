@@ -1032,27 +1032,37 @@ export class Game {
     }
 
     createSpaceDust() {
+        // Keep dust subtle: it's for speed/depth cues, not a visible particle field.
+        const ws = this.worldScale ?? 1;
         const dustGeo = new THREE.BufferGeometry();
-        const dustCount = 2000;
+        const dustCount = 1200;
         const posArray = new Float32Array(dustCount * 3);
-        
-        for(let i = 0; i < dustCount * 3; i++) {
-            posArray[i] = (Math.random() - 0.5) * 400 * this.worldScale; // scaled box
+
+        const range = 320 * ws;
+        for (let i = 0; i < dustCount; i++) {
+            const ix = i * 3;
+            posArray[ix] = (Math.random() - 0.5) * range * 2;
+            posArray[ix + 1] = (Math.random() - 0.5) * range * 2;
+            posArray[ix + 2] = (Math.random() - 0.5) * range * 2;
         }
-        
+
         dustGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-        
+
         const dustMat = new THREE.PointsMaterial({
             color: 0xbfe6ff,
-            size: 1.1,
+            size: 0.85 * ws,
             transparent: true,
-            opacity: 0.65,
-            sizeAttenuation: true
+            opacity: 0.28,
+            sizeAttenuation: true,
+            depthWrite: false
         });
-        
+
         this.spaceDustPoints = new THREE.Points(dustGeo, dustMat);
-        this.spaceDustPoints.userData = { range: 200 * this.worldScale };
+        this.spaceDustPoints.userData = { range };
         this.scene.add(this.spaceDustPoints);
+
+        // Clear any older multi-layer state.
+        this.spaceDustLayers = null;
     }
 
     createRetroBackdrop() {
@@ -1080,36 +1090,38 @@ export class Game {
         };
 
         const ws = this.worldScale;
+        // Keep it clean: 3 layers is enough for parallax without turning into "snow".
         this.retroBackdropLayers = [
-            mkLayer({ count: 850, range: 550 * ws, size: 3.2, color: 0xe7f1ff, opacity: 0.95, drift: 0.24 }),
-            mkLayer({ count: 520, range: 850 * ws, size: 3.8, color: 0xbfe0ff, opacity: 0.85, drift: 0.16 }),
-            mkLayer({ count: 260, range: 1200 * ws, size: 4.5, color: 0xffd7b2, opacity: 0.78, drift: 0.09 })
+            mkLayer({ count: 520, range: 620 * ws, size: 2.2 * ws, color: 0xeaf5ff, opacity: 0.75, drift: 0.20 }),
+            mkLayer({ count: 320, range: 1100 * ws, size: 1.6 * ws, color: 0xbfe0ff, opacity: 0.55, drift: 0.12 }),
+            mkLayer({ count: 180, range: 1800 * ws, size: 1.2 * ws, color: 0xffe6cf, opacity: 0.40, drift: 0.07 })
         ];
 
         // Big pixel nebula sprites (chunky and low-detail on purpose)
         const nebTex = this._createPixelNebulaTexture(128);
         const colors = [0x6c2bd9, 0x2b77ff, 0xff2b75, 0x2bffcc];
         this.retroNebulaSprites = [];
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 10; i++) {
             const c = colors[i % colors.length];
             const mat = new THREE.SpriteMaterial({
                 map: nebTex,
                 color: c,
                 transparent: true,
-                opacity: 0.22,
+                opacity: 0.16,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
             const s = new THREE.Sprite(mat);
-            const scale = 900 + Math.random() * 1700;
+            const scale = (1200 + Math.random() * 2200) * ws;
             s.scale.set(scale, scale, 1);
             s.position.set(
-                (Math.random() - 0.5) * 3500 * ws,
-                (Math.random() - 0.5) * 3500 * ws,
-                (Math.random() - 0.5) * 3500 * ws
+                (Math.random() - 0.5) * 5200 * ws,
+                (Math.random() - 0.5) * 5200 * ws,
+                (Math.random() - 0.5) * 5200 * ws
             );
             s.material.rotation = Math.random() * Math.PI * 2;
-            s.userData = { range: 2200 * ws };
+            // Static nebulas: drift read as "noise" more than depth in this art style.
+            s.userData = { range: 3800 * ws };
             this.scene.add(s);
             this.retroNebulaSprites.push(s);
         }
@@ -1485,7 +1497,7 @@ export class Game {
 
             this._registerDistanceLabel(planet, {
                 kind: 'planet',
-                prefix: `P${i + 1}`,
+                prefix: `P${i + 1}-${kind === 'planet_large' ? 'L' : kind === 'planet_small' ? 'S' : 'M'}`,
                 yOffset: planet.scale.x * 1.05 + 30 * ws
             });
 

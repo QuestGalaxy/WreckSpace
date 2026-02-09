@@ -121,27 +121,33 @@ export const V1 = Object.freeze({
   }),
 
   targets: Object.freeze({
-    asteroid_small: Object.freeze({
-      kind: 'asteroid_small',
-      type: 'asteroid',
-      hp: 120,
-      drops: Object.freeze({ coin: 20, gem: 50 }),
-      // Chance to drop a powerup on destruction.
-      powerupDropChance: 0.06
-    }),
-    asteroid_big: Object.freeze({
-      kind: 'asteroid_big',
-      type: 'asteroid',
-      hp: 240,
-      drops: Object.freeze({ coin: 40, gem: 100 }),
-      powerupDropChance: 0.10
-    }),
-    planet_mini: Object.freeze({
-      kind: 'planet_mini',
+    // Planets only (for now): 3 sizes.
+    // HP roughly maps to "shots to destroy" given baseDamage=10:
+    // - small ~14 shots, medium ~32 shots, large ~65 shots (before upgrades).
+    planet_small: Object.freeze({
+      kind: 'planet_small',
       type: 'planet',
-      hp: 500,
-      drops: Object.freeze({ coin: 160, gem: 200 }),
-      powerupDropChance: 0.16
+      hp: 50,
+      drops: Object.freeze({ coin: 60, gem: 60 }),
+      powerupDropChance: 0.10,
+      // Multiplies explosion visuals/audio intensity (in addition to scale).
+      explosionMul: 0.95
+    }),
+    planet_medium: Object.freeze({
+      kind: 'planet_medium',
+      type: 'planet',
+      hp: 120,
+      drops: Object.freeze({ coin: 140, gem: 160 }),
+      powerupDropChance: 0.16,
+      explosionMul: 1.00
+    }),
+    planet_large: Object.freeze({
+      kind: 'planet_large',
+      type: 'planet',
+      hp: 350,
+      drops: Object.freeze({ coin: 260, gem: 320 }),
+      powerupDropChance: 0.22,
+      explosionMul: 1.18
     })
   }),
 
@@ -150,17 +156,22 @@ export const V1 = Object.freeze({
     enabled: false,
     // Damage per second while overlapping.
     dpsByKind: Object.freeze({
-      asteroid_small: 14,
-      asteroid_big: 22,
-      planet_mini: 30
+      planet_small: 26,
+      planet_medium: 32,
+      planet_large: 40
     })
   }),
 
   spawn: Object.freeze({
-    asteroidRange: 2200, // multiplied by worldScale
-    smallAsteroids: 260,
-    bigAsteroids: 70,
-    miniPlanets: 6
+    // AABB half-range (multiplied by worldScale).
+    // NOTE: planet scales are huge (medium/large). Keep the world range large enough so
+    // minimum separation constraints can be satisfied without clumping near the origin/base.
+    planetRange: 12000,
+    planets: Object.freeze({
+      small: 15,
+      medium: 7,
+      large: 4
+    })
   })
 });
 

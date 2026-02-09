@@ -84,6 +84,11 @@ export class Game {
         // Planet "light beam" (visual only). Stored separately so we can animate without coupling to gameplay.
         this.planetBeams = [];
         this._planetBeamTexture = null;
+
+        // Single spotlight used to brighten the currently locked planet.
+        // This keeps the "planet is lit" look without adding dozens of dynamic lights.
+        this.lockSpot = null;
+        this.lockSpotTarget = null;
         
         // V1 state
         this.stats = {
@@ -258,6 +263,14 @@ export class Game {
         rim.position.set(-120, 20, -180);
         this.scene.add(rim);
 
+        // Single lock spotlight: only lights the current target, so it reads well without tanking FPS.
+        this.lockSpotTarget = new THREE.Object3D();
+        this.scene.add(this.lockSpotTarget);
+        this.lockSpot = new THREE.SpotLight(0xffffff, 0.0, 6000 * this.worldScale, Math.PI * 0.60, 0.75, 1.1);
+        this.lockSpot.position.set(0, 0, 0);
+        this.lockSpot.target = this.lockSpotTarget;
+        this.scene.add(this.lockSpot);
+
         // Camera fill light: prevents "pitch black" faces when the main key is behind.
         // Attach to camera so it always helps what's on screen without flattening everything.
         this.scene.add(this.camera);
@@ -380,45 +393,13 @@ export class Game {
     createTestAreaEnvironment() {
         const ws = this.worldScale ?? 1;
 
-        // A small, controlled scene: 1 planet + 1 asteroid, placed for quick interaction.
+        // A small, controlled scene: 1 planet, placed for quick interaction.
         // Planet: mid distance, large enough to read voxel carving.
-        const planetPos = new THREE.Vector3(0, 0, 520 * ws);
-        const asteroidPos = new THREE.Vector3(120 * ws, 20 * ws, 240 * ws);
-        this._testAreaCfg = { planetPos, asteroidPos };
-
-        // Pre-bake variants (reuse the same caches as the main world).
-        if (!this._voxelAsteroidVariants) {
-            this._voxelAsteroidVariants = [];
-            for (let i = 0; i < 16; i++) {
-                const rng = mulberry32(0xdecafbad + i * 1013);
-                const filled = new Set();
-                const r = 2 + Math.floor(rng() * 6); // 2..7 voxels
-                addSphere(filled, r, { hollow: false, jitter: 1.25, rng });
-                for (const k of Array.from(filled)) {
-                    if (rng() < 0.10) filled.delete(k);
-                }
-                const geo = buildVoxelSurfaceGeometry(filled, {
-                    voxelSize: this.voxel.size,
-                    shadeTop: 1.0,
-                    shadeSide: 0.92,
-                    shadeBottom: 0.78
-                });
-                geo.computeBoundingSphere();
-                const br = geo.boundingSphere?.radius ?? 1;
-                const normScale = br > 0.00001 ? 1 / br : 1;
-                if (normScale !== 1) geo.scale(normScale, normScale, normScale);
-                geo.computeBoundingSphere();
-                this._voxelAsteroidVariants.push({
-                    geo,
-                    filled,
-                    voxelSizeOriginal: this.voxel.size,
-                    normScale,
-                    shadeTop: 1.0,
-                    shadeSide: 0.92,
-                    shadeBottom: 0.78
-                });
-            }
-        }
+        const planetKind = 'planet_medium';
+        const planetScale = (planetKind === 'planet_large' ? 1500 : planetKind === 'planet_small' ? 85 : 450) * ws;
+        // Keep it comfortably in front of the camera given the test-area far plane and huge planet scales.
+        const planetPos = new THREE.Vector3(0, 0, planetScale * 3.2 + 600 * ws);
+        this._testAreaCfg = { planetPos, planetKind };
 
         // Share the same planet variants across modes, but ensure the bake uses world-UVs.
         // This avoids per-voxel noisy tiling and keeps planet patterns consistent.
@@ -443,75 +424,10 @@ export class Game {
             this._voxelPlanetVariantsUvScale = wantPlanetUvScale;
         }
 
-        this._spawnTestAreaAsteroid();
-        this._spawnTestAreaPlanet();
+        this._spawnTestAreaPlanet(planetKind);
     }
 
-    _spawnTestAreaAsteroid() {
-        const ws = this.worldScale ?? 1;
-        const pos = this._testAreaCfg?.asteroidPos ?? new THREE.Vector3(120 * ws, 20 * ws, 240 * ws);
-
-        const variant = this._voxelAsteroidVariants[0];
-        const baseColor = new THREE.Color(this.theme.asteroidPalette[1] ?? 0x7f8c99);
-        const material = this._voxLit({
-            color: baseColor,
-            map: this._voxelTextures.rock,
-            emissive: baseColor.clone().multiplyScalar(0.10),
-            emissiveIntensity: 0.18,
-            roughness: 0.95,
-            metalness: 0.02
-        });
-
-        const asteroid = new THREE.Mesh(variant.geo, material);
-        const scale = 11.5 * ws;
-        asteroid.scale.set(scale, scale, scale);
-        asteroid.position.copy(pos);
-        asteroid.rotation.set(0.35, 0.2, 0.0);
-        asteroid.userData = { type: 'asteroid', rotationSpeed: { x: 0.002, y: -0.003, z: 0.001 }, voxel: null };
-
-        const filled = new Set(variant.filled);
-        asteroid.userData.voxel = {
-            filled,
-            resource: new Set(),
-            resourceRate: 0,
-            initialCount: filled.size,
-            voxelSizeOriginal: variant.voxelSizeOriginal,
-            normScale: variant.normScale,
-            shadeTop: variant.shadeTop,
-            shadeSide: variant.shadeSide,
-            shadeBottom: variant.shadeBottom,
-            lastRebuildAtSec: -999
-        };
-
-        const hp = V1.targets.asteroid_small.hp ?? 120;
-        const entityId = this.world.createObject({ type: 'asteroid', kind: 'asteroid_small', hp, maxHp: hp });
-        this.renderRegistry.bind(entityId, asteroid);
-        this.world.transform.set(entityId, {
-            x: asteroid.position.x,
-            y: asteroid.position.y,
-            z: asteroid.position.z,
-            rx: asteroid.rotation.x,
-            ry: asteroid.rotation.y,
-            rz: asteroid.rotation.z,
-            sx: asteroid.scale.x,
-            sy: asteroid.scale.y,
-            sz: asteroid.scale.z
-        });
-        this.world.spin.set(entityId, { x: asteroid.userData.rotationSpeed.x, y: asteroid.userData.rotationSpeed.y, z: asteroid.userData.rotationSpeed.z });
-
-        this.createHealthBar(asteroid);
-        this.scene.add(asteroid);
-        this.objects.push(asteroid);
-
-        // Local kick light to make chunks read.
-        const light = new THREE.PointLight(0x66ccff, 1.1, 260 * ws, 2);
-        light.position.copy(pos).add(new THREE.Vector3(25 * ws, 18 * ws, 40 * ws));
-        this.scene.add(light);
-
-        return entityId;
-    }
-
-    _spawnTestAreaPlanet() {
+    _spawnTestAreaPlanet(kind = 'planet_medium') {
         const ws = this.worldScale ?? 1;
         const pos = this._testAreaCfg?.planetPos ?? new THREE.Vector3(0, 0, 520 * ws);
 
@@ -527,7 +443,7 @@ export class Game {
         mat.roughness = 0.98;
         mat.metalness = 0.0;
         const planet = new THREE.Mesh(variant.geo, mat);
-        const scale = 72 * ws;
+        const scale = kind === 'planet_large' ? 1500 * ws : kind === 'planet_small' ? 85 * ws : 450 * ws;
         planet.scale.set(scale, scale, scale);
         planet.position.copy(pos);
         planet.rotation.set(0, 0, 0);
@@ -549,8 +465,8 @@ export class Game {
             lastRebuildAtSec: -999
         };
 
-        const hp = V1.targets.planet_mini.hp ?? 500;
-        const entityId = this.world.createObject({ type: 'planet', kind: 'planet_mini', hp, maxHp: hp });
+        const hp = V1.targets?.[kind]?.hp ?? V1.targets.planet_medium.hp;
+        const entityId = this.world.createObject({ type: 'planet', kind, hp, maxHp: hp });
         this.renderRegistry.bind(entityId, planet);
         this.world.transform.set(entityId, {
             x: planet.position.x,
@@ -596,7 +512,7 @@ export class Game {
     _scheduleTestAreaRespawn(meta) {
         if (this.mode !== 'testArea') return;
         const kind = meta?.kind ?? null;
-        if (kind !== 'asteroid_small' && kind !== 'planet_mini') return;
+        if (kind !== 'planet_small' && kind !== 'planet_medium' && kind !== 'planet_large') return;
 
         // Avoid stacking respawns if something calls destroy twice.
         const key = kind;
@@ -609,8 +525,7 @@ export class Game {
             this._testAreaRespawnPending?.delete?.(key);
             if (this.mode !== 'testArea') return;
             if (!this.scene) return;
-            if (kind === 'asteroid_small') this._spawnTestAreaAsteroid();
-            else if (kind === 'planet_mini') this._spawnTestAreaPlanet();
+            this._spawnTestAreaPlanet(kind);
         }, 1200);
     }
 
@@ -674,24 +589,9 @@ export class Game {
         const group = new THREE.Group();
         group.position.copy(planet.position);
 
-        // Beam should light the whole planet (not just a patch): use a wide spot + a big soft fill.
-        const spot = new THREE.SpotLight(0xffffff, 1.25, Math.max(height * 2.4, r * 6.0), Math.PI * 0.55, 0.65, 1.2);
-        spot.color.setHex(colorHex);
-        spot.position.set(0, height * 0.55, 0);
-        spot.target.position.set(0, 0, 0);
-        group.add(spot);
-        group.add(spot.target);
-
-        // Soft fill light so far-side voxels still read (keeps "beam" feeling but lights the full body).
-        const fill = new THREE.PointLight(0xffffff, 0.85, Math.max(height * 2.8, r * 8.0), 2);
-        fill.color.setHex(colorHex);
-        fill.position.set(0, height * 0.15, 0);
-        group.add(fill);
-
-        // Very subtle rim from below to avoid a dead-black underside when the main key is above.
-        const under = new THREE.PointLight(0xd6ecff, 0.22, Math.max(height * 2.2, r * 7.0), 2);
-        under.position.set(0, -height * 0.35, 0);
-        group.add(under);
+        // Important for performance: beams are visual-only (additive cone). Actual "full planet lighting"
+        // is handled by a single lock spotlight (see init()).
+        void colorHex;
 
         // Volumetric cone (fake) with scrolling texture.
         const tex = this._getPlanetBeamTexture();
@@ -735,8 +635,7 @@ export class Game {
         const baseOpacity = 0.20;
         mat.opacity = baseOpacity;
         if (tex) tex.offset.set(0, 0);
-        if (spot) spot.intensity = 1.25;
-        this.planetBeams.push({ target: planet, group, cone, mat, tex, spot, baseOpacity });
+        this.planetBeams.push({ target: planet, group, cone, mat, tex, baseOpacity });
     }
 
     resumeFromBase() {
@@ -926,7 +825,7 @@ export class Game {
             const rr = r + shipR;
             if (dx * dx + dy * dy + dz * dz > rr * rr) continue;
 
-            const kind = meta?.kind ?? meta?.type ?? 'asteroid_small';
+            const kind = meta?.kind ?? meta?.type ?? 'planet_small';
             const dps = V1.collisionDamage.dpsByKind?.[kind] ?? 0;
             dmg += dps * dtSec;
         }
@@ -1431,131 +1330,8 @@ export class Game {
     }
 
     createEnvironment() {
-        // Pre-bake a handful of voxel asteroid geometries; reuse them for spawns.
-        if (!this._voxelAsteroidVariants) {
-            this._voxelAsteroidVariants = [];
-            for (let i = 0; i < 16; i++) {
-                const rng = mulberry32(0xdecafbad + i * 1013);
-                const filled = new Set();
-                const r = 2 + Math.floor(rng() * 6); // 2..7 voxels
-                addSphere(filled, r, { hollow: false, jitter: 1.25, rng });
-                for (const k of Array.from(filled)) {
-                    if (rng() < 0.10) filled.delete(k);
-                }
-                const geo = buildVoxelSurfaceGeometry(filled, {
-                    voxelSize: this.voxel.size,
-                    shadeTop: 1.0,
-                    shadeSide: 0.92,
-                    shadeBottom: 0.78
-                });
-                geo.computeBoundingSphere();
-                const br = geo.boundingSphere?.radius ?? 1;
-                const normScale = br > 0.00001 ? 1 / br : 1;
-                if (normScale !== 1) geo.scale(normScale, normScale, normScale);
-                geo.computeBoundingSphere();
-                this._voxelAsteroidVariants.push({
-                    geo,
-                    filled,
-                    voxelSizeOriginal: this.voxel.size,
-                    normScale,
-                    shadeTop: 1.0,
-                    shadeSide: 0.92,
-                    shadeBottom: 0.78
-                });
-            }
-        }
-
+        // Planets-only world (asteroids disabled for now).
         const ws = this.worldScale ?? 1;
-        const asteroidRange = (V1.spawn.asteroidRange ?? 2200) * ws;
-        const spawnAsteroid = (kind, i) => {
-            const variant = this._voxelAsteroidVariants[Math.floor(Math.random() * this._voxelAsteroidVariants.length)];
-            const baseColorHex = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
-            const baseColor = new THREE.Color(baseColorHex);
-            baseColor.offsetHSL((Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.18, (Math.random() - 0.5) * 0.14);
-            baseColor.multiplyScalar(0.95 + Math.random() * 0.35);
-            const material = this._voxLit({
-                color: baseColor,
-                map: this._voxelTextures.rock,
-                emissive: baseColor.clone().multiplyScalar(0.10),
-                emissiveIntensity: 0.12 + Math.random() * 0.16,
-                roughness: 0.95,
-                metalness: 0.02
-            });
-
-            const asteroid = new THREE.Mesh(variant.geo, material);
-            const scale = kind === 'asteroid_big' ? 11.0 * ws : 4.2 * ws;
-            asteroid.scale.set(scale, scale, scale);
-
-            asteroid.position.set(
-                (Math.random() - 0.5) * asteroidRange * 2,
-                (Math.random() - 0.5) * asteroidRange * 2,
-                (Math.random() - 0.5) * asteroidRange * 2
-            );
-            asteroid.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-
-            // Don't place near base.
-            if (asteroid.position.distanceTo(this.baseStation.position) < 180 * ws) {
-                asteroid.position.x += 360 * ws;
-            }
-
-            asteroid.userData = {
-                type: 'asteroid',
-                rotationSpeed: {
-                    x: (Math.random() - 0.5) * 0.01,
-                    y: (Math.random() - 0.5) * 0.01,
-                    z: (Math.random() - 0.5) * 0.01
-                },
-                voxel: null
-            };
-
-            // Per-instance voxel state for destruction.
-            {
-                const filled = new Set(variant.filled);
-                asteroid.userData.voxel = {
-                    filled,
-                    resource: new Set(),
-                    resourceRate: 0,
-                    initialCount: filled.size,
-                    voxelSizeOriginal: variant.voxelSizeOriginal,
-                    normScale: variant.normScale,
-                    shadeTop: variant.shadeTop,
-                    shadeSide: variant.shadeSide,
-                    shadeBottom: variant.shadeBottom,
-                    lastRebuildAtSec: -999
-                };
-            }
-
-            const hp = V1.targets[kind]?.hp ?? 120;
-            const entityId = this.world.createObject({ type: 'asteroid', kind, hp, maxHp: hp });
-            this.renderRegistry.bind(entityId, asteroid);
-            this.world.transform.set(entityId, {
-                x: asteroid.position.x,
-                y: asteroid.position.y,
-                z: asteroid.position.z,
-                rx: asteroid.rotation.x,
-                ry: asteroid.rotation.y,
-                rz: asteroid.rotation.z,
-                sx: asteroid.scale.x,
-                sy: asteroid.scale.y,
-                sz: asteroid.scale.z
-            });
-            this.world.spin.set(entityId, {
-                x: asteroid.userData.rotationSpeed.x,
-                y: asteroid.userData.rotationSpeed.y,
-                z: asteroid.userData.rotationSpeed.z
-            });
-
-            this.createHealthBar(asteroid);
-            this.scene.add(asteroid);
-            this.objects.push(asteroid);
-
-            void i;
-        };
-
-        const nSmall = V1.spawn.smallAsteroids ?? 260;
-        const nBig = V1.spawn.bigAsteroids ?? 70;
-        for (let i = 0; i < nSmall; i++) spawnAsteroid('asteroid_small', i);
-        for (let i = 0; i < nBig; i++) spawnAsteroid('asteroid_big', i);
 
         // Planets: voxel shells (chunky).
         const wantPlanetUvMode = 'world';
@@ -1581,10 +1357,68 @@ export class Game {
         }
 
         const planetColors = [0xff7733, 0x3366ff, 0x44aa44, 0xaa44ff];
-        const nPlanets = V1.spawn.miniPlanets ?? 6;
-        for (let i = 0; i < nPlanets; i++) {
+        const planetRange = (V1.spawn.planetRange ?? 3000) * ws;
+
+        // Spawn constraints so you don't start "inside" a huge planet and planets don't clump.
+        const playerStart = new THREE.Vector3(0, 0, 0);
+        const basePos = this.baseStation?.position ? this.baseStation.position.clone() : new THREE.Vector3(0, 0, -120 * ws);
+        const forward0 = new THREE.Vector3(0, 0, 1); // initial ship forward
+
+        /** @type {{ pos: THREE.Vector3, r: number, kind: string }[]} */
+        const placed = [];
+
+        const kindRadius = (kind) => (kind === 'planet_large' ? 1500 * ws : kind === 'planet_small' ? 85 * ws : 450 * ws);
+        const kindMinFromStart = (kind, r) => {
+            // Scale-aware distances: keep a clean "spawn pocket" around the origin.
+            // (Old constants were for much smaller planets and became impossible with 1500*ws scale.)
+            const pad = kind === 'planet_large' ? 2200 * ws : kind === 'planet_medium' ? 1200 * ws : 650 * ws;
+            return r * 1.35 + pad;
+        };
+        const kindMinFromBase = (kind, r) => {
+            // Keep planets away from base so docking area stays readable.
+            const pad = kind === 'planet_large' ? 2000 * ws : kind === 'planet_medium' ? 1200 * ws : 850 * ws;
+            return r * 1.25 + pad;
+        };
+
+        const isOkPos = (pos, kind, r) => {
+            // Keep away from player start and base.
+            if (pos.distanceTo(playerStart) < kindMinFromStart(kind, r)) return false;
+            if (pos.distanceTo(basePos) < kindMinFromBase(kind, r)) return false;
+
+            // Keep planets apart (radius-based).
+            const baseSep = 900 * ws;
+            for (const p of placed) {
+                const sep = (r + p.r) * 1.18 + baseSep;
+                if (pos.distanceTo(p.pos) < sep) return false;
+            }
+
+            // Avoid putting giant planets directly in front of the player on spawn.
+            const dir = pos.clone().sub(playerStart).normalize();
+            const dot = dir.dot(forward0);
+            if (kind === 'planet_large' && dot > 0.55 && pos.length() < planetRange * 0.95) return false;
+
+            return true;
+        };
+
+        const pickPos = (kind, r) => {
+            // Bias large planets towards the outer shell of the spawn cube so they don't dominate the start view.
+            const tries = 220;
+            for (let t = 0; t < tries; t++) {
+                const biasOuter = kind === 'planet_large' ? 0.75 : kind === 'planet_medium' ? 0.55 : 0.35;
+                const rr = biasOuter + Math.random() * (1 - biasOuter); // [biasOuter..1]
+                const sx = (Math.random() - 0.5) * planetRange * 2 * rr;
+                const sy = (Math.random() - 0.5) * planetRange * 2 * rr;
+                const sz = (Math.random() - 0.5) * planetRange * 2 * rr;
+                const pos = new THREE.Vector3(sx, sy, sz);
+                if (isOkPos(pos, kind, r)) return pos;
+            }
+            // If we can't find a valid placement, skip this planet instead of spawning it too close.
+            return null;
+        };
+
+        const spawnPlanet = (kind, i) => {
             const color = planetColors[i % planetColors.length];
-            const variant = this._voxelPlanetVariants[i % this._voxelPlanetVariants.length];
+            const variant = this._voxelPlanetVariants[Math.floor(Math.random() * this._voxelPlanetVariants.length)];
             const mat = this._voxLit({
                 color,
                 map: this._voxelTextures.rockBlob ?? this._voxelTextures.rockSoft ?? this._voxelTextures.rock,
@@ -1595,14 +1429,14 @@ export class Game {
             mat.roughness = 0.98;
             mat.metalness = 0.0;
             const planet = new THREE.Mesh(variant.geo, mat);
-            const scale = 120 * ws;
+            const scale = kind === 'planet_large' ? 1500 * ws : kind === 'planet_small' ? 85 * ws : 450 * ws;
             planet.scale.set(scale, scale, scale);
 
-            planet.position.set(
-                (Math.random() - 0.5) * 6000 * ws,
-                (Math.random() - 0.5) * 6000 * ws,
-                (Math.random() - 0.5) * 6000 * ws
-            );
+            const r = kindRadius(kind);
+            const ppos = pickPos(kind, r);
+            if (!ppos) return;
+            planet.position.copy(ppos);
+            planet.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
 
             planet.userData = {
                 type: 'planet',
@@ -1627,8 +1461,8 @@ export class Game {
                 };
             }
 
-            const hp = V1.targets.planet_mini.hp ?? 500;
-            const planetEntityId = this.world.createObject({ type: 'planet', kind: 'planet_mini', hp, maxHp: hp });
+            const hp = V1.targets?.[kind]?.hp ?? V1.targets.planet_medium.hp;
+            const planetEntityId = this.world.createObject({ type: 'planet', kind, hp, maxHp: hp });
             this.renderRegistry.bind(planetEntityId, planet);
             this.world.transform.set(planetEntityId, {
                 x: planet.position.x,
@@ -1667,7 +1501,17 @@ export class Game {
             );
             glow.scale.set(3.6, 3.6, 1);
             planet.add(glow);
-        }
+
+            placed.push({ pos: planet.position.clone(), r, kind });
+        };
+
+        const nSmall = V1.spawn?.planets?.small ?? 0;
+        const nMed = V1.spawn?.planets?.medium ?? 0;
+        const nLarge = V1.spawn?.planets?.large ?? 0;
+        let idx = 0;
+        for (let i = 0; i < nSmall; i++, idx++) spawnPlanet('planet_small', idx);
+        for (let i = 0; i < nMed; i++, idx++) spawnPlanet('planet_medium', idx);
+        for (let i = 0; i < nLarge; i++, idx++) spawnPlanet('planet_large', idx);
     }
 
     _registerDistanceLabel(target, { kind, prefix, yOffset }) {
@@ -1785,11 +1629,17 @@ export class Game {
     destroyObject(obj, index) {
         // High impact camera shake on destruction
         this.cameraShake = obj.userData.type === 'planet' ? 2.5 : 1.2;
+
+        const entityId = obj?.userData?.entityId ?? null;
+        const kind = entityId ? (this.world.objectMeta.get(entityId)?.kind ?? null) : null;
+        const cfg = kind ? (V1.targets?.[kind] ?? null) : null;
+        const mul = cfg?.explosionMul ?? 1.0;
+        const size = (obj.scale.x ?? 1) * mul;
         
-        this.soundManager.playExplosion(obj.scale.x);
+        this.soundManager.playExplosion(size);
 
         // Enhanced explosion visuals
-        this.vfx.createExplosion(obj.position, obj.scale.x, obj.userData.type);
+        this.vfx.createExplosion(obj.position, size, obj.userData.type);
         this.spawner.spawnOnDestroyed(obj);
 
         if (obj.userData.entityId) {

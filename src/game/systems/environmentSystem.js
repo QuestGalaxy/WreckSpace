@@ -20,6 +20,7 @@ export class EnvironmentSystem {
     this.updateObjectRotation(dtSec);
     this.syncObjectsFromWorld();
     this.updatePlanetBeams(dtSec, nowSec);
+    this.updateLockSpot(nowSec);
     this.updateHealthBarLayouts();
     this.updateSpaceDust();
     this.updateRetroBackdrop();
@@ -227,5 +228,49 @@ export class EnvironmentSystem {
       target.getWorldPosition(this._tmpWorldPos);
       b.group.position.copy(this._tmpWorldPos);
     }
+  }
+
+  updateLockSpot(nowSec) {
+    const g = this.game;
+    const spot = g.lockSpot ?? null;
+    const target = g.lockSpotTarget ?? null;
+    if (!spot || !target) return;
+
+    const lockedId = g.currentTargetEntityId ?? null;
+    if (!lockedId) {
+      spot.intensity = 0.0;
+      return;
+    }
+
+    const t = g.world.transform.get(lockedId);
+    if (!t) {
+      spot.intensity = 0.0;
+      return;
+    }
+
+    // Aim at locked target and place the spotlight slightly "above" camera forward.
+    target.position.set(t.x, t.y, t.z);
+
+    if (g.camera) {
+      // Keep the light near camera so it feels like a targeting/scan light.
+      spot.position.copy(g.camera.position);
+      // Nudge upward to avoid blasting straight through the ship.
+      spot.position.y += 80 * (g.worldScale ?? 1);
+    }
+
+    // Scale intensity by distance so close targets don't blow out.
+    const dx = spot.position.x - t.x;
+    const dy = spot.position.y - t.y;
+    const dz = spot.position.z - t.z;
+    const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
+
+    // Soft clamp.
+    const ws = g.worldScale ?? 1;
+    const near = 300 * ws;
+    const far = 2400 * ws;
+    const k = THREE.MathUtils.clamp((dist - near) / Math.max(1, far - near), 0, 1);
+    spot.intensity = 0.85 + 0.35 * k;
+
+    void nowSec;
   }
 }

@@ -1165,13 +1165,32 @@ export class Game {
         canvas.height = size;
         const ctx = canvas.getContext('2d');
 
-        // Gradient base (slightly brighter center to give depth).
-        const g = ctx.createRadialGradient(size * 0.52, size * 0.45, size * 0.05, size * 0.5, size * 0.5, size * 0.75);
-        g.addColorStop(0, '#243a7a');
-        g.addColorStop(0.45, '#101a3a');
-        g.addColorStop(1, '#050714');
-        ctx.fillStyle = g;
+        // IMPORTANT: Avoid a centered radial highlight.
+        // A bright center reads like a fixed "headlight/fog oval" when combined with bloom.
+        // Use a very subtle diagonal gradient + a few off-center dark clouds instead.
+        const base = ctx.createLinearGradient(0, 0, size, size);
+        base.addColorStop(0, '#101a3a');
+        base.addColorStop(1, '#050714');
+        ctx.fillStyle = base;
         ctx.fillRect(0, 0, size, size);
+
+        // Off-center very soft "nebula haze" blobs (kept dark so they don't bloom).
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 3; i++) {
+            const cx = (0.15 + Math.random() * 0.70) * size;
+            const cy = (0.15 + Math.random() * 0.70) * size;
+            const rad = (0.30 + Math.random() * 0.35) * size;
+            const rg = ctx.createRadialGradient(cx, cy, rad * 0.05, cx, cy, rad);
+            rg.addColorStop(0.0, 'rgba(36,58,122,0.08)');
+            rg.addColorStop(0.55, 'rgba(12,18,40,0.04)');
+            rg.addColorStop(1.0, 'rgba(0,0,0,0.0)');
+            ctx.fillStyle = rg;
+            ctx.beginPath();
+            ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
 
         // Subtle color noise to avoid flatness.
         const img = ctx.getImageData(0, 0, size, size);
@@ -1185,11 +1204,12 @@ export class Game {
         ctx.putImageData(img, 0, 0);
 
         // Few large faint stars (background only).
-        ctx.fillStyle = 'rgba(230,245,255,0.10)';
-        for (let i = 0; i < 140; i++) {
+        // Keep alpha low so bloom doesn't catch it.
+        ctx.fillStyle = 'rgba(230,245,255,0.08)';
+        for (let i = 0; i < 180; i++) {
             const x = Math.random() * size;
             const y = Math.random() * size;
-            const r = Math.random() < 0.1 ? 2 : 1;
+            const r = Math.random() < 0.08 ? 2 : 1;
             ctx.fillRect(x, y, r, r);
         }
 

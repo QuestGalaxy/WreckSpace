@@ -37,6 +37,8 @@ export class EntryScene {
         this.planetAttackers = [];
         this.planetImpacts = []; // { mesh, life }
         
+        this.cameraBasePos = new THREE.Vector3(0, 0, 250); // Base camera position
+        
         this.asteroids = []; // { group, radius, voxels: [{relPos, color}] }
         this.looseVoxels = []; // { mesh, velocity, rotVel, life }
         
@@ -55,6 +57,9 @@ export class EntryScene {
         this._createAsteroids();
         this._createVoxelTitle("WreckSpace");
         this._createDogfight();
+        
+        // Initial resize to set camera pos
+        this._onResize();
         
         window.addEventListener('resize', this._binds.onResize);
         window.addEventListener('pointerdown', this._binds.onPointerDown);
@@ -180,18 +185,18 @@ export class EntryScene {
 
     _createPlanet() {
         // Voxel Planet using InstancedMesh
-        const planetRadius = 280;
+        const planetRadius = 320; // Even larger (was 280)
         const voxelSize = 12; // Large chunks
-        const center = new THREE.Vector3(250, 50, -500);
+        const center = new THREE.Vector3(250, 50, -450); // Closer (was -500)
         
         const textures = createVoxelTextures();
         const material = new THREE.MeshStandardMaterial({
             map: textures.stone,
-            color: 0x551111, // Reddish stone
-            emissive: 0x220000,
-            emissiveIntensity: 0.2,
-            roughness: 0.9,
-            metalness: 0.1
+            color: 0x882222, // Much brighter red (was 0x551111)
+            emissive: 0x440000, // Stronger glow (was 0x220000)
+            emissiveIntensity: 0.5, // Much brighter (was 0.2)
+            roughness: 0.8, // Slightly less rough to catch light
+            metalness: 0.2
         });
         
         const geometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
@@ -257,11 +262,11 @@ export class EntryScene {
         this.scene.add(this.planetVoxels);
         
         // Add an atmosphere glow (keep this as a smooth mesh for contrast)
-        const atmoGeo = new THREE.IcosahedronGeometry(300, 3);
+        const atmoGeo = new THREE.IcosahedronGeometry(340, 3); // Larger (was 300)
         const atmoMat = new THREE.MeshBasicMaterial({
-            color: 0xff5500, // Brighter orange
+            color: 0xff6600, // Even brighter orange
             transparent: true,
-            opacity: 0.15, // More visible
+            opacity: 0.3, // Much more visible (was 0.15)
             side: THREE.BackSide,
             blending: THREE.AdditiveBlending
         });
@@ -573,19 +578,49 @@ export class EntryScene {
         const textures = createVoxelTextures();
         const material = new THREE.MeshStandardMaterial({
             map: textures.panels,
-            color: 0x00ccff,
-            roughness: 0.2,
-            metalness: 0.8,
-            emissive: 0x0044aa,
-            emissiveIntensity: 0.5
+            color: 0xffffff, // White base to allow instance colors to show through
+            roughness: 0.5, // Balanced roughness
+            metalness: 0.2, // Slight metalness
+            emissive: 0x000000, // Pure black emissive (no grey wash)
+            emissiveIntensity: 0
         });
 
         this.instancedMesh = new THREE.InstancedMesh(geometry, material, voxelPositions.length);
         
+        const color = new THREE.Color();
+        // Neon Cyberpunk Theme - Black Base
+        const baseColor = new THREE.Color(0x050505); // Almost Pure Black
+        const accentColor1 = new THREE.Color(0xff00cc); // Neon Pink
+        const accentColor2 = new THREE.Color(0x00ffff); // Neon Cyan
+        const accentColor3 = new THREE.Color(0x4400cc); // Electric Purple
+        
+        // Add a dedicated DirectionalLight for the title to make it pop consistently
+        const titleLight = new THREE.DirectionalLight(0xffffff, 4.0); // Bright white light to hit the black edges
+        titleLight.position.set(0, 50, 100); // Frontal-top
+        titleLight.target.position.set(0, 0, 0);
+        this.scene.add(titleLight);
+        this.scene.add(titleLight.target);
+
         this.voxels = voxelPositions.map((pos, idx) => {
             this.dummy.position.set(pos.x, pos.y, pos.z);
             this.dummy.updateMatrix();
             this.instancedMesh.setMatrixAt(idx, this.dummy.matrix);
+            
+            // Color Logic
+            const rand = Math.random();
+            if (rand > 0.90) {
+                color.copy(accentColor1); // Neon Pink accents
+            } else if (rand > 0.82) {
+                color.copy(accentColor2); // Neon Cyan accents
+            } else if (rand > 0.65) {
+                color.copy(accentColor3); // Electric Purple
+            } else {
+                // Base Gradient (Black to Dark Grey)
+                const t = (pos.x + 300) / 600; 
+                color.copy(baseColor).lerp(new THREE.Color(0x1a1a1a), t * 0.4);
+            }
+            
+            this.instancedMesh.setColorAt(idx, color);
             
             return {
                 index: idx,
@@ -599,6 +634,7 @@ export class EntryScene {
         });
         
         this.instancedMesh.instanceMatrix.needsUpdate = true;
+        if (this.instancedMesh.instanceColor) this.instancedMesh.instanceColor.needsUpdate = true;
         this.scene.add(this.instancedMesh);
     }
 
@@ -704,6 +740,41 @@ export class EntryScene {
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.composer.setSize(window.innerWidth, window.innerHeight);
+        
+        // Responsive Layout Logic
+        const isMobile = window.innerWidth < 768;
+        const aspect = this.camera.aspect;
+        
+        let targetWidth = 550; // Desktop width of text
+        
+        if (isMobile) {
+            // Scale title down on mobile
+            // This prevents camera from having to move too far back
+            if (this.instancedMesh) {
+                this.instancedMesh.scale.setScalar(0.7); // Slightly larger (was 0.5)
+                this.instancedMesh.position.y = 65; // Adjusted height
+            }
+            targetWidth = 385; // 0.7 * 550
+        } else {
+            if (this.instancedMesh) {
+                this.instancedMesh.scale.setScalar(1.0);
+                this.instancedMesh.position.y = 0;
+            }
+        }
+        
+        // dist = width / (2 * tan(fov/2) * aspect)
+        // tan(30) = 0.577
+        let dist = targetWidth / (1.154 * aspect);
+        
+        // Clamp minimum distance
+        dist = Math.max(250, dist);
+        
+        // Limit max distance on mobile so planet doesn't disappear
+        if (isMobile) {
+            dist = Math.min(dist, 600); // Relaxed limit (was 500) to fit larger text
+        }
+        
+        this.cameraBasePos.z = dist;
     }
 
     _onPointerMove(e) {
@@ -851,7 +922,7 @@ export class EntryScene {
                             Math.random()-0.5,
                             Math.random()-0.5,
                             Math.random()-0.5
-                        ).normalize().multiplyScalar(280); // Planet radius
+                        ).normalize().multiplyScalar(320); // Planet radius updated to 320
                         
                         // We need to add this to the planet position (which is the center)
                         // Note: this.planet is now an Object3D at the center, so applyMatrix4 works if we treat it as local offset
@@ -938,8 +1009,18 @@ export class EntryScene {
         }
 
         // Camera drift (Cinematic feel)
-        this.camera.position.x += (Math.sin(time * 0.2) * 10 - this.camera.position.x) * 0.01;
-        this.camera.position.y += (Math.cos(time * 0.3) * 5 - this.camera.position.y) * 0.01;
+        // Lerp towards base + drift
+        const driftX = Math.sin(time * 0.2) * 10;
+        const driftY = Math.cos(time * 0.3) * 5;
+        
+        const targetX = this.cameraBasePos.x + driftX;
+        const targetY = this.cameraBasePos.y + driftY;
+        const targetZ = this.cameraBasePos.z;
+        
+        this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
+        this.camera.position.y += (targetY - this.camera.position.y) * 0.05;
+        this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
+        
         this.camera.lookAt(0, 0, -50);
 
             // Animate Dogfight

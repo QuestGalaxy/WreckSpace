@@ -8,8 +8,45 @@
 </head>
 <body>
     <div id="ui-container">
+        <!-- Entry Screen -->
+        <div id="entry-screen" class="screen">
+            <div class="entry-overlay"></div>
+            <div class="entry-content">
+                <!-- 3D Title replaces the HTML title -->
+                <div class="entry-subtitle">CHAOS IN THE STARS</div>
+                
+                <div class="main-menu">
+                    <button id="start-btn" class="menu-btn primary">
+                        <span class="btn-text">START MISSION</span>
+                        <span class="btn-deco"></span>
+                    </button>
+                    <button id="hangar-btn" class="menu-btn">
+                        <span class="btn-text">HANGAR</span>
+                        <span class="btn-deco"></span>
+                    </button>
+                    <button id="settings-btn" class="menu-btn">
+                        <span class="btn-text">SETTINGS</span>
+                        <span class="btn-deco"></span>
+                    </button>
+                    <button id="credits-btn" class="menu-btn">
+                        <span class="btn-text">CREDITS</span>
+                        <span class="btn-deco"></span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="entry-footer">
+                <div class="version">v0.4.2 ALPHA</div>
+                <div class="socials">
+                    <span class="social-icon">DISCORD</span>
+                    <span class="social-icon">TWITTER</span>
+                    <span class="social-icon">GITHUB</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Spaceship Selection Screen -->
-        <div id="selection-screen" class="screen">
+        <div id="selection-screen" class="screen hidden">
             <div id="hangar-ui">
                 <div class="hangar-header">
                     <div class="hangar-kicker">HANGAR BAY</div>
@@ -79,6 +116,19 @@
                     </div>
 
                     <button id="ship-next" class="hangar-nav" aria-label="Next ship">›</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Universal Modal -->
+        <div id="modal-overlay" class="modal-overlay hidden">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h2 id="modal-title">TITLE</h2>
+                    <button id="modal-close" class="modal-close-btn">×</button>
+                </div>
+                <div id="modal-body" class="modal-body">
+                    <!-- Content injected via JS -->
                 </div>
             </div>
         </div>

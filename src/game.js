@@ -1388,6 +1388,43 @@ export class Game {
             this._voxelPlanetVariantsUvScale = wantPlanetUvScale;
         }
 
+        // 2. Asteroids: solid voxel clumps (noise-filled).
+        // Matches entryScene.js aesthetic: "voxel ball with noise".
+        if (!this._voxelAsteroidVariants) {
+            this._voxelAsteroidVariants = [];
+            for (let i = 0; i < 6; i++) {
+                const rng = mulberry32(0x99887766 + i * 54321);
+                const filled = new Set();
+                const r = 4 + Math.floor(rng() * 3); // 4..6 voxels radius
+                
+                // Create noisy ball
+                for(let x=-r; x<=r; x++) {
+                    for(let y=-r; y<=r; y++) {
+                        for(let z=-r; z<=r; z++) {
+                            if (x*x + y*y + z*z <= r*r) {
+                                if (rng() > 0.65) continue; // 35% empty noise
+                                filled.add(`${x},${y},${z}`);
+                            }
+                        }
+                    }
+                }
+
+                // Surface-only geometry is fine for rendering, but for destruction we might want
+                // to know it was "solid". For now, surface geometry is standard.
+                const geo = buildVoxelSurfaceGeometry(filled, { 
+                    voxelSize: 1.0, 
+                    uvMode: 'perFace', // Classic voxel look for asteroids
+                    uvScale: 1.0 
+                });
+                geo.computeBoundingSphere();
+                const br = geo.boundingSphere?.radius ?? 1;
+                const normScale = br > 0.00001 ? 1 / br : 1;
+                if (normScale !== 1) geo.scale(normScale, normScale, normScale);
+                geo.computeBoundingSphere();
+                this._voxelAsteroidVariants.push({ geo, filled, voxelSizeOriginal: 1.0, normScale });
+            }
+        }
+
         const planetColors = [0xff7733, 0x3366ff, 0x44aa44, 0xaa44ff];
         const planetRange = (V1.spawn.planetRange ?? 3000) * ws;
 
@@ -1399,7 +1436,13 @@ export class Game {
         /** @type {{ pos: THREE.Vector3, r: number, kind: string }[]} */
         const placed = [];
 
-        const kindRadius = (kind) => (kind === 'planet_large' ? 1500 * ws : kind === 'planet_small' ? 85 * ws : 450 * ws);
+        const kindRadius = (kind) => {
+             if (kind === 'planet_large') return 1500 * ws * 0.5;
+             if (kind === 'planet_medium') return 450 * ws * 0.5;
+             if (kind === 'planet_small') return 85 * ws * 0.5;
+             if (kind === 'asteroid') return 15 * ws * 0.5; // Approx
+             return 100 * ws;
+        };
         const kindMinFromStart = (kind, r) => {
             // Scale-aware distances: keep a clean "spawn pocket" around the origin.
             // (Old constants were for much smaller planets and became impossible with 1500*ws scale.)
@@ -1418,9 +1461,9 @@ export class Game {
             if (pos.distanceTo(basePos) < kindMinFromBase(kind, r)) return false;
 
             // Keep planets apart (radius-based).
-            const baseSep = 900 * ws;
+            const baseSep = kind === 'asteroid' ? 150 * ws : 900 * ws;
             for (const p of placed) {
-                const sep = (r + p.r) * 1.18 + baseSep;
+                const sep = (r + p.r) * 1.1 + baseSep;
                 if (pos.distanceTo(p.pos) < sep) return false;
             }
 
@@ -1445,6 +1488,35 @@ export class Game {
                 if (isOkPos(pos, kind, r)) return pos;
             }
             // If we can't find a valid placement, skip this planet instead of spawning it too close.
+            return null;
+        };
+
+        const pickAsteroidPos = (r) => {
+            // Asteroids: spawn in a denser, closer belt to ensure visibility.
+            const range = 6000 * ws; // Much closer than planets (30000)
+            const tries = 100;
+            for (let t = 0; t < tries; t++) {
+                const rr = 0.15 + Math.random() * 0.85;
+                const sx = (Math.random() - 0.5) * range * 2 * rr;
+                const sy = (Math.random() - 0.5) * range * 2 * rr;
+                const sz = (Math.random() - 0.5) * range * 2 * rr;
+                const pos = new THREE.Vector3(sx, sy, sz);
+                // Less strict checks for asteroids: allow them closer to player/base than planets
+                // but still respect a minimal safety bubble.
+                if (pos.distanceTo(playerStart) < 300 * ws) continue;
+                if (pos.distanceTo(basePos) < 400 * ws) continue;
+                
+                // Simple separation check against other objects
+                let ok = true;
+                const minSep = 80 * ws;
+                for (const p of placed) {
+                    if (pos.distanceTo(p.pos) < (r + p.r + minSep)) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) return pos;
+            }
             return null;
         };
 
@@ -1485,11 +1557,10 @@ export class Game {
                     voxelSizeOriginal: variant.voxelSizeOriginal,
                     normScale: variant.normScale,
                     shadeTop: 1.0,
-                    shadeSide: 0.88,
-                    shadeBottom: 0.72,
-                    uvMode: 'world',
-                    uvScale: 0.09,
-                    lastRebuildAtSec: -999
+                    shadeSide: 0.92,
+                    shadeBottom: 0.78,
+                    uvMode: this._voxelPlanetVariantsUvMode,
+                    uvScale: wantPlanetUvScale
                 };
             }
 
@@ -1537,13 +1608,90 @@ export class Game {
             placed.push({ pos: planet.position.clone(), r, kind });
         };
 
+        const spawnAsteroid = (i) => {
+            const variant = this._voxelAsteroidVariants[Math.floor(Math.random() * this._voxelAsteroidVariants.length)];
+            // Use asteroid palette
+            const color = this.theme.asteroidPalette[Math.floor(Math.random() * this.theme.asteroidPalette.length)];
+            const mat = this._voxLit({
+                color,
+                map: this._voxelTextures.stone ?? this._voxelTextures.rock, // Stone texture
+                emissive: 0x000000,
+                emissiveIntensity: 0.0
+            });
+            mat.roughness = 0.9;
+            mat.metalness = 0.1;
+            
+            const asteroid = new THREE.Mesh(variant.geo, mat);
+            // Scale varies: 12..25 world units
+            const scale = (12 + Math.random() * 13) * ws;
+            asteroid.scale.set(scale, scale, scale);
+
+            const r = kindRadius('asteroid');
+            const ppos = pickAsteroidPos(r);
+            if (!ppos) return;
+            asteroid.position.copy(ppos);
+            asteroid.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+            asteroid.userData = {
+                type: 'asteroid',
+                voxel: null
+            };
+
+            {
+                const filled = new Set(variant.filled);
+                asteroid.userData.voxel = {
+                    filled,
+                    resource: new Set(), // Could add resources later
+                    resourceRate: 0,
+                    initialCount: filled.size,
+                    voxelSizeOriginal: variant.voxelSizeOriginal,
+                    normScale: variant.normScale,
+                    shadeTop: 1.0,
+                    shadeSide: 0.85,
+                    shadeBottom: 0.65,
+                    uvMode: 'perFace',
+                    uvScale: 1.0
+                };
+            }
+
+            // Health: fragile
+            const hp = 60 + Math.random() * 80;
+            const entityId = this.world.createObject({ type: 'asteroid', kind: 'asteroid', hp, maxHp: hp });
+            this.world.transform.set(entityId, { 
+                x: ppos.x, 
+                y: ppos.y, 
+                z: ppos.z,
+                rx: asteroid.rotation.x,
+                ry: asteroid.rotation.y,
+                rz: asteroid.rotation.z,
+                sx: asteroid.scale.x,
+                sy: asteroid.scale.y,
+                sz: asteroid.scale.z
+            });
+
+            // Asteroids rotate faster
+            this.world.spin.set(entityId, {
+                x: (Math.random() - 0.5) * 0.04,
+                y: (Math.random() - 0.5) * 0.04,
+                z: (Math.random() - 0.5) * 0.04
+            });
+            
+            this.renderRegistry.bind(entityId, asteroid);
+            this.scene.add(asteroid);
+            this.objects.push(asteroid);
+            placed.push({ pos: ppos, r, kind: 'asteroid' });
+        };
+
         const nSmall = V1.spawn?.planets?.small ?? 0;
         const nMed = V1.spawn?.planets?.medium ?? 0;
         const nLarge = V1.spawn?.planets?.large ?? 0;
+        const nAsteroids = 200; // Denser asteroid field
+
         let idx = 0;
         for (let i = 0; i < nSmall; i++, idx++) spawnPlanet('planet_small', idx);
         for (let i = 0; i < nMed; i++, idx++) spawnPlanet('planet_medium', idx);
         for (let i = 0; i < nLarge; i++, idx++) spawnPlanet('planet_large', idx);
+        for (let i = 0; i < nAsteroids; i++, idx++) spawnAsteroid(idx);
     }
 
     _registerDistanceLabel(target, { kind, prefix, yOffset }) {

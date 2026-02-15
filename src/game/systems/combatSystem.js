@@ -266,7 +266,9 @@ export class CombatSystem {
       const t = g.world.transform.get(g.currentTargetEntityId);
       if (t) {
         this._targetWorldPos.set(t.x, t.y, t.z);
-        const precision = !!g.keys?.ShiftLeft || !!g.keys?.ShiftRight || !!g._precisionHeld;
+        const precision = typeof g.isPrecisionAimActive === 'function'
+          ? g.isPrecisionAimActive()
+          : (!!g.keys?.ShiftLeft || !!g.keys?.ShiftRight);
         if (!precision) {
           // Locked fire: auto-aim to target center (strong lock).
           forward = this._dirToObj.subVectors(this._targetWorldPos, this._bulletPos).normalize();

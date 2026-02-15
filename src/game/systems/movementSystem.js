@@ -34,6 +34,7 @@ export class MovementSystem {
   update(dtSec, nowSec) {
     const g = this.game;
     if (!g.playerEntityId || !g.player) return;
+    const keyDown = (code) => (typeof g.isControlActive === 'function' ? g.isControlActive(code) : !!g.keys?.[code]);
 
     // Keep behavior stable even if stepHz changes.
     const k = dtSec * 60;
@@ -43,7 +44,7 @@ export class MovementSystem {
     const yawSpeed = 0.010 * k;
     const rollSpeed = 0.015 * k;
     // Acceleration is scaled by worldScale so voxel scaling doesn't change feel.
-    const boosting = !!g.keys['KeyZ'];
+    const boosting = keyDown('KeyZ');
     const acceleration = (boosting ? 0.08 : 0.04) * k * ws;
     const friction = Math.pow(0.98, k); // convert per-tick friction to dt-aware
 
@@ -55,22 +56,22 @@ export class MovementSystem {
     this._quat.set(rq.x, rq.y, rq.z, rq.w);
 
     // Rotational Input (local axes; match Object3D.rotateX/Y/Z semantics)
-    if (g.keys['ArrowUp'] || g.keys['KeyW']) {
+    if (keyDown('ArrowUp') || keyDown('KeyW')) {
       this._qTmp.setFromAxisAngle(this._axisX, -pitchSpeed);
       this._quat.multiply(this._qTmp);
     }
-    if (g.keys['ArrowDown'] || g.keys['KeyS']) {
+    if (keyDown('ArrowDown') || keyDown('KeyS')) {
       this._qTmp.setFromAxisAngle(this._axisX, pitchSpeed);
       this._quat.multiply(this._qTmp);
     }
 
-    if (g.keys['ArrowLeft'] || g.keys['KeyA']) {
+    if (keyDown('ArrowLeft') || keyDown('KeyA')) {
       this._qTmp.setFromAxisAngle(this._axisY, yawSpeed);
       this._quat.multiply(this._qTmp);
       this._qTmp.setFromAxisAngle(this._axisZ, rollSpeed * 0.6);
       this._quat.multiply(this._qTmp);
     }
-    if (g.keys['ArrowRight'] || g.keys['KeyD']) {
+    if (keyDown('ArrowRight') || keyDown('KeyD')) {
       this._qTmp.setFromAxisAngle(this._axisY, -yawSpeed);
       this._quat.multiply(this._qTmp);
       this._qTmp.setFromAxisAngle(this._axisZ, -rollSpeed * 0.6);
@@ -78,11 +79,11 @@ export class MovementSystem {
     }
 
     // Manual Roll
-    if (g.keys['KeyQ']) {
+    if (keyDown('KeyQ')) {
       this._qTmp.setFromAxisAngle(this._axisZ, rollSpeed);
       this._quat.multiply(this._qTmp);
     }
-    if (g.keys['KeyE']) {
+    if (keyDown('KeyE')) {
       this._qTmp.setFromAxisAngle(this._axisZ, -rollSpeed);
       this._quat.multiply(this._qTmp);
     }
@@ -97,8 +98,11 @@ export class MovementSystem {
     const dblTapWindowSec = 0.33;
     if (upTap) {
       if (nowSec - this._lastUpTapSec <= dblTapWindowSec) {
-        g.throttle.level = Math.min(g.throttle.max, g.throttle.level + g.throttle.step);
-        if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        if (typeof g.adjustThrottle === 'function') g.adjustThrottle(+1);
+        else {
+          g.throttle.level = Math.min(g.throttle.max, g.throttle.level + g.throttle.step);
+          if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        }
         this._lastUpTapSec = -1e9;
       } else {
         this._lastUpTapSec = nowSec;
@@ -106,8 +110,11 @@ export class MovementSystem {
     }
     if (downTap) {
       if (nowSec - this._lastDownTapSec <= dblTapWindowSec) {
-        g.throttle.level = Math.max(g.throttle.min, g.throttle.level - g.throttle.step);
-        if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        if (typeof g.adjustThrottle === 'function') g.adjustThrottle(-1);
+        else {
+          g.throttle.level = Math.max(g.throttle.min, g.throttle.level - g.throttle.step);
+          if (g.showMessage) g.showMessage(`Speed ${g.throttle.level}/${g.throttle.max}`);
+        }
         this._lastDownTapSec = -1e9;
       } else {
         this._lastDownTapSec = nowSec;

@@ -22,6 +22,7 @@ export class CameraSystem {
     void nowSec;
     const g = this.game;
     if (!g.playerEntityId || !g.camera) return;
+    const keyDown = (code) => (typeof g.isControlActive === 'function' ? g.isControlActive(code) : !!g.keys?.[code]);
     const t = g.world.transform.get(g.playerEntityId);
     const rq = g.world.rotationQuat.get(g.playerEntityId);
     if (!t || !rq) return;
@@ -43,13 +44,13 @@ export class CameraSystem {
     const baseOffsetY = typeof cfg.offsetY === 'number' ? cfg.offsetY : 22;
     const boostOffsetZ = typeof cfg.boostOffsetZ === 'number' ? cfg.boostOffsetZ : -36;
     const boostOffsetY = typeof cfg.boostOffsetY === 'number' ? cfg.boostOffsetY : 20;
-    const offsetZ = (g.keys['KeyZ'] ? boostOffsetZ : baseOffsetZ) * camScale * distScale;
-    const offsetY = (g.keys['KeyZ'] ? boostOffsetY : baseOffsetY) * camScale;
+    const offsetZ = (keyDown('KeyZ') ? boostOffsetZ : baseOffsetZ) * camScale * distScale;
+    const offsetY = (keyDown('KeyZ') ? boostOffsetY : baseOffsetY) * camScale;
 
     this._idealOffset.set(0, offsetY, offsetZ);
 
-    if (g.keys['KeyZ'] || g.cameraShake > 0) {
-      const shakeAmt = g.keys['KeyZ'] ? 0.2 : g.cameraShake;
+    if (keyDown('KeyZ') || g.cameraShake > 0) {
+      const shakeAmt = keyDown('KeyZ') ? 0.2 : g.cameraShake;
       this._idealOffset.x += (Math.random() - 0.5) * shakeAmt;
       this._idealOffset.y += (Math.random() - 0.5) * shakeAmt;
       if (g.cameraShake > 0) g.cameraShake *= Math.pow(0.9, k);
@@ -73,7 +74,7 @@ export class CameraSystem {
 
     const baseFov = typeof cfg.fov === 'number' ? cfg.fov : 60;
     const boostFov = typeof cfg.boostFov === 'number' ? cfg.boostFov : 70;
-    const targetFOV = g.keys['KeyZ'] ? boostFov : baseFov;
+    const targetFOV = keyDown('KeyZ') ? boostFov : baseFov;
     g.camera.fov = THREE.MathUtils.lerp(g.camera.fov, targetFOV, fovLerp);
     g.camera.updateProjectionMatrix();
   }

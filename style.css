@@ -1,7 +1,15 @@
+html,
+body {
+    width: 100%;
+    height: 100%;
+}
+
 body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+    min-height: 100dvh;
+    overscroll-behavior: none;
     background-color: #000;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: #fff;
@@ -12,8 +20,9 @@ body {
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    height: 100dvh;
     z-index: 1;
+    touch-action: none;
 }
 
 #ui-container {
@@ -21,7 +30,7 @@ body {
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    height: 100dvh;
     z-index: 10;
     pointer-events: none;
 }
@@ -29,7 +38,7 @@ body {
 .screen {
     position: absolute;
     width: 100%;
-    height: 100%;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -346,8 +355,10 @@ body {
 #selection-screen {
     background: transparent;
     backdrop-filter: none;
-    justify-content: flex-end;
-    padding-bottom: 40px;
+    justify-content: center;
+    padding: max(12px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    box-sizing: border-box;
+    overflow-y: auto;
 }
 
 #selection-screen::before {
@@ -368,7 +379,7 @@ body {
     background-clip: text;
     -webkit-text-fill-color: transparent;
     text-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
-    margin-bottom: 60px;
+    margin-bottom: 20px;
     position: relative;
 }
 
@@ -396,9 +407,11 @@ body {
 
 /* HANGAR UI (single-screen carousel) */
 #hangar-ui {
-    width: min(840px, calc(100vw - 40px));
+    width: min(900px, calc(100vw - 20px));
+    max-height: calc(100dvh - max(20px, env(safe-area-inset-top)) - max(20px, env(safe-area-inset-bottom)));
     pointer-events: auto;
     user-select: none;
+    touch-action: pan-y;
 }
 
 .hangar-header {
@@ -517,7 +530,7 @@ body {
     border: none;
     font-size: 0.75rem;
     line-height: 1.3;
-    max-width: 300px;
+    max-width: none;
 }
 
 /* Right side group */
@@ -580,6 +593,7 @@ body {
 .hangar-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
     margin-top: 10px;
     padding-top: 10px;
@@ -588,6 +602,7 @@ body {
 
 .hangar-mode {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     padding: 2px;
     border-radius: 6px;
@@ -672,6 +687,107 @@ body {
     font-size: 0.6rem;
     margin-top: 4px;
     opacity: 0.5;
+}
+
+@media (max-width: 980px) {
+    #selection-screen h1 {
+        font-size: 2.1rem;
+        letter-spacing: 4px;
+    }
+
+    .hangar-panel {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        padding: 12px 14px;
+    }
+
+    .ship-stats-block {
+        padding-left: 0;
+        padding-top: 8px;
+        border-left: none;
+        border-top: 1px solid rgba(0, 255, 255, 0.12);
+    }
+
+    .hangar-mode {
+        width: 100%;
+    }
+
+    .hangar-mode-opt {
+        flex: 1 1 calc(50% - 4px);
+    }
+
+    .hangar-mode-opt span {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .hangar-select {
+        width: 100%;
+    }
+}
+
+@media (max-width: 700px) {
+    #selection-screen {
+        justify-content: flex-start;
+    }
+
+    #hangar-ui {
+        width: 100%;
+    }
+
+    .hangar-body {
+        position: relative;
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    .hangar-panel {
+        padding: 12px 50px 12px 50px;
+        gap: 12px;
+    }
+
+    .hangar-nav {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        z-index: 4;
+    }
+
+    #ship-prev {
+        left: 4px;
+    }
+
+    #ship-next {
+        right: 4px;
+    }
+
+    .hangar-hint {
+        grid-column: span 1;
+        font-size: 0.55rem;
+    }
+}
+
+@media (max-width: 440px) {
+    .hangar-panel {
+        padding: 10px 44px 10px 44px;
+    }
+
+    .ship-name {
+        font-size: 1.15rem;
+        letter-spacing: 1px;
+    }
+
+    .hangar-stat-row {
+        grid-template-columns: 72px 1fr;
+        gap: 8px;
+    }
+
+    .hangar-stat-track {
+        height: 9px;
+    }
 }
 
 .spaceship-card {
@@ -1218,6 +1334,159 @@ body {
     animation: fadeOut 3s forwards;
     display: inline-block;
     box-shadow: 0 0 18px rgba(90, 255, 255, 0.06), inset 0 0 22px rgba(60, 220, 255, 0.05);
+}
+
+.mobile-controls {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+    display: none;
+}
+
+.mobile-controls.inactive {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mobile-controls.hidden {
+    display: none !important;
+}
+
+.mobile-controls-left {
+    position: absolute;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    pointer-events: none;
+}
+
+.mobile-move-pad {
+    position: relative;
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    border: 1px solid rgba(120, 240, 255, 0.35);
+    background: radial-gradient(circle, rgba(0, 40, 70, 0.35) 0%, rgba(0, 10, 18, 0.62) 72%);
+    box-shadow: inset 0 0 22px rgba(0, 220, 255, 0.14), 0 0 18px rgba(0, 220, 255, 0.08);
+    pointer-events: auto;
+    touch-action: none;
+}
+
+.mobile-move-ring {
+    position: absolute;
+    inset: 12px;
+    border-radius: 50%;
+    border: 1px dashed rgba(140, 250, 255, 0.25);
+}
+
+.mobile-move-knob {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(130, 240, 255, 0.95) 0%, rgba(16, 130, 200, 0.9) 72%);
+    box-shadow: 0 0 16px rgba(100, 240, 255, 0.4);
+    border: 1px solid rgba(210, 255, 255, 0.65);
+}
+
+.mobile-controls-right {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.mobile-top-actions {
+    display: flex;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.mobile-main-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, auto));
+    gap: 8px;
+    pointer-events: none;
+}
+
+.mobile-btn {
+    pointer-events: auto;
+    touch-action: none;
+    min-width: 68px;
+    height: 46px;
+    border-radius: 999px;
+    border: 1px solid rgba(130, 240, 255, 0.35);
+    background: linear-gradient(180deg, rgba(4, 20, 34, 0.86) 0%, rgba(3, 11, 20, 0.92) 100%);
+    color: rgba(220, 250, 255, 0.96);
+    font-size: 0.68rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.mobile-btn.compact {
+    min-width: 56px;
+    height: 38px;
+    font-size: 0.58rem;
+    letter-spacing: 0.8px;
+}
+
+.mobile-btn.fire {
+    min-width: 80px;
+    height: 80px;
+    border-color: rgba(255, 140, 90, 0.45);
+    background: radial-gradient(circle, rgba(255, 145, 95, 0.78) 0%, rgba(155, 28, 8, 0.9) 80%);
+    box-shadow: 0 0 26px rgba(255, 120, 70, 0.24);
+    color: #fff7ef;
+}
+
+.mobile-btn:active {
+    transform: scale(0.97);
+    filter: brightness(1.08);
+}
+
+@media (pointer: coarse), (max-width: 980px) {
+    .mobile-controls {
+        display: block;
+    }
+}
+
+@media (max-width: 480px) {
+    .mobile-move-pad {
+        width: 116px;
+        height: 116px;
+    }
+
+    .mobile-move-knob {
+        width: 40px;
+        height: 40px;
+    }
+
+    .mobile-btn {
+        min-width: 60px;
+        height: 42px;
+        font-size: 0.62rem;
+    }
+
+    .mobile-btn.compact {
+        min-width: 52px;
+        height: 34px;
+        font-size: 0.54rem;
+    }
+
+    .mobile-btn.fire {
+        min-width: 72px;
+        height: 72px;
+    }
 }
 
 #base-menu {

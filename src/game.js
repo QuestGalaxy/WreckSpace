@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { SoundManager } from './soundManager.js';
 import { FixedTimestepLoop } from './core/fixedTimestepLoop.js';
 import { KeyboardInput } from './input/keyboard.js';
+import { MobileTouchControls } from './input/mobileTouchControls.js';
 import { CombatSystem } from './game/systems/combatSystem.js';
 import { LootSystem } from './game/systems/lootSystem.js';
 import { MovementSystem } from './game/systems/movementSystem.js';
@@ -121,12 +122,20 @@ export class Game {
         
         this.input = new KeyboardInput();
         this.keys = this.input.keys;
+        /** @type {Record<string, boolean>} */
+        this.virtualKeys = {};
         this.objects = [];
         this.bullets = [];
         this.particles = [];
         this.cameraShake = 0;
         this.isPaused = false;
         this.lastShotTime = 0;
+        this._fireHeldMouse = false;
+        this._fireHeldTouch = false;
+        this._precisionHeldMouse = false;
+        this._precisionHeldTouch = false;
+        this.mobileControls = null;
+        this.mobileControlsEnabled = false;
 
         if (this.hud) {
             this.hud.setStats(this._getHudStats());
@@ -327,27 +336,30 @@ export class Game {
 
         // Fire can be held (mouse/touch). This also avoids "can't shoot while moving" on some keyboards
         // due to rollover/ghosting (W + Space not registering together).
-        this._fireHeld = false;
-        this._precisionHeld = false;
+        const isMobileUiTarget = (target) => {
+            if (!target || typeof target.closest !== 'function') return false;
+            return !!target.closest('#mobile-controls');
+        };
         this._onPointerDown = (e) => {
             if (!e) return;
+            if (isMobileUiTarget(e.target)) return;
             // RMB: precision aim (no fire)
             if (typeof e.button === 'number' && e.button === 2) {
-                this._precisionHeld = true;
+                this._precisionHeldMouse = true;
                 return;
             }
             // LMB: hold-to-fire
             if (typeof e.button === 'number' && e.button !== 0) return;
-            this._fireHeld = true;
+            this._fireHeldMouse = true;
             this.shoot();
         };
         this._onPointerUp = (e) => {
-            if (e && typeof e.button === 'number' && e.button === 2) this._precisionHeld = false;
-            if (e && typeof e.button === 'number' && e.button === 0) this._fireHeld = false;
+            if (e && typeof e.button === 'number' && e.button === 2) this._precisionHeldMouse = false;
+            if (e && typeof e.button === 'number' && e.button === 0) this._fireHeldMouse = false;
             // Some browsers report -1; be safe.
             if (!e || e.button == null) {
-                this._fireHeld = false;
-                this._precisionHeld = false;
+                this._fireHeldMouse = false;
+                this._precisionHeldMouse = false;
             }
         };
         this._onContextMenu = (e) => {
@@ -359,6 +371,12 @@ export class Game {
         window.addEventListener('pointercancel', this._onPointerUp);
         window.addEventListener('blur', this._onPointerUp);
         window.addEventListener('contextmenu', this._onContextMenu);
+
+        this.mobileControls = new MobileTouchControls({ game: this, doc: document });
+        this.mobileControlsEnabled = this.mobileControls.attach();
+        if (this.mobileControlsEnabled && this.hud?.setControlsHint) {
+            this.hud.setControlsHint('Swipe Pad: Steer | Fire: Tap/Hold | Boost: Hold | +/-: Speed | Warp: Button');
+        }
 
         // Start Loop
         requestAnimationFrame((t) => this.animate(t));
@@ -649,6 +667,39 @@ export class Game {
 
     _nowSec() {
         return this._simTimeSec ?? 0;
+    }
+
+    isControlActive(code) {
+        return !!this.keys?.[code] || !!this.virtualKeys?.[code];
+    }
+
+    setVirtualKey(code, active) {
+        if (!code) return;
+        if (active) this.virtualKeys[code] = true;
+        else delete this.virtualKeys[code];
+    }
+
+    setTouchFireHeld(active) {
+        this._fireHeldTouch = !!active;
+    }
+
+    setTouchPrecisionHeld(active) {
+        this._precisionHeldTouch = !!active;
+    }
+
+    isPrecisionAimActive() {
+        return this.isControlActive('ShiftLeft') || this.isControlActive('ShiftRight') || !!this._precisionHeldMouse || !!this._precisionHeldTouch;
+    }
+
+    adjustThrottle(delta) {
+        if (!this.throttle) return;
+        const d = Math.sign(Number(delta) || 0);
+        if (!d) return;
+        const step = Math.max(1, this.throttle.step ?? 1);
+        const next = THREE.MathUtils.clamp(this.throttle.level + d * step, this.throttle.min, this.throttle.max);
+        if (next === this.throttle.level) return;
+        this.throttle.level = next;
+        this.showMessage(`Speed ${this.throttle.level}/${this.throttle.max}`);
     }
 
     _getHudStats() {
@@ -1782,7 +1833,7 @@ export class Game {
 
         // Hold-to-fire support (mouse/touch + backup key).
         // Note: Space key is still handled on keydown for immediate response.
-        if (this._fireHeld || this.keys?.Space || this.keys?.KeyX) {
+        if (this._fireHeldMouse || this._fireHeldTouch || this.isControlActive('Space') || this.isControlActive('KeyX')) {
             this.combat.shoot();
         }
 
@@ -2033,6 +2084,7 @@ export class Game {
         if (this._onPointerUp) window.removeEventListener('pointercancel', this._onPointerUp);
         if (this._onPointerUp) window.removeEventListener('blur', this._onPointerUp);
         if (this._onContextMenu) window.removeEventListener('contextmenu', this._onContextMenu);
+        if (this.mobileControls) this.mobileControls.detach();
 
         if (this.composer && this.composer.dispose) this.composer.dispose();
         if (this.renderer) this.renderer.dispose();

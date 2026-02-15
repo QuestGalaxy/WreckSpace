@@ -33,11 +33,13 @@ export class ShipSelectHangar {
     this._dragStartX = 0;
     this._dragStartY = 0;
     this._dragDeltaX = 0;
+    this._dragDeltaY = 0;
     this._lastDragMs = 0;
+    this._activePointerId = null;
 
     // DOM bindings
     this.el = {
-      root: document.getElementById('selection-screen'),
+      root: document.getElementById('hangar-ui') ?? document.getElementById('selection-screen'),
       prev: document.getElementById('ship-prev'),
       next: document.getElementById('ship-next'),
       select: document.getElementById('ship-select'),
@@ -134,29 +136,39 @@ export class ShipSelectHangar {
       this._dragStartX = e.clientX;
       this._dragStartY = e.clientY;
       this._dragDeltaX = 0;
+      this._dragDeltaY = 0;
       this._lastDragMs = performance.now();
+      this._activePointerId = e.pointerId ?? null;
       // Only capture for drags. Capturing unconditionally would break button clicks.
       this.el.root?.setPointerCapture?.(e.pointerId);
     };
     this._onPointerMove = (e) => {
       if (!this._pointerDown) return;
+      if (this._activePointerId != null && e.pointerId !== this._activePointerId) return;
       this._dragDeltaX = e.clientX - this._dragStartX;
+      this._dragDeltaY = e.clientY - this._dragStartY;
+      if (Math.abs(this._dragDeltaX) > Math.abs(this._dragDeltaY)) e.preventDefault();
       this._lastDragMs = performance.now();
     };
-    this._onPointerUp = () => {
+    this._onPointerUp = (e) => {
       if (!this._pointerDown) return;
+      if (this._activePointerId != null && e?.pointerId != null && e.pointerId !== this._activePointerId) return;
       this._pointerDown = false;
 
       const dx = this._dragDeltaX;
-      const dy = 0; // reserved
-      void dy;
+      const dy = this._dragDeltaY;
 
       // Only treat it as a swipe if it's intentional and mostly horizontal.
-      if (Math.abs(dx) > 60) {
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) {
         if (dx > 0) this.setIndex(this._index - 1);
         else this.setIndex(this._index + 1);
       }
       this._dragDeltaX = 0;
+      this._dragDeltaY = 0;
+      if (this._activePointerId != null) {
+        this.el.root?.releasePointerCapture?.(this._activePointerId);
+      }
+      this._activePointerId = null;
     };
 
     if (this.el.root) {

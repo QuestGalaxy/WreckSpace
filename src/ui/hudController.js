@@ -49,6 +49,7 @@ export class HudController {
 
     this.crosshair = doc.getElementById('crosshair-container');
     this.lockPip = doc.getElementById('lock-pip');
+    this.mobileControlsRoot = doc.getElementById('mobile-controls');
     // UI tuning: by default, keep the crosshair slightly above exact screen center so it doesn't sit on the ship.
     // Negative Y moves it upward.
     this.crosshairOffsetPx = { x: 0, y: -42 };
@@ -257,6 +258,7 @@ export class HudController {
     if (!this.baseMenu) return;
     if (visible) this.baseMenu.classList.remove('hidden');
     else this.baseMenu.classList.add('hidden');
+    if (this.mobileControlsRoot) this.mobileControlsRoot.classList.toggle('inactive', !!visible);
   }
 
   /**

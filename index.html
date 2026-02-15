@@ -183,7 +183,7 @@
             <div id="hud-bottom-left" class="hud-panel">
                 <div class="system-status">SYSTEMS ONLINE</div>
                 <div id="controls-hint" class="controls-hint">
-                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | CLICK/SPACE/X: Fire | SHIFT/RMB: Precision | F: Warp to Base
+                    WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | CLICK/SPACE/X: Fire | SHIFT/RMB: Precision | F: Warp to Base | Mobile: Swipe + Buttons
                 </div>
             </div>
 
@@ -198,6 +198,28 @@
             <div id="lock-pip" aria-hidden="true"></div>
 
             <div id="messages"></div>
+
+            <!-- Mobile Touch Controls -->
+            <div id="mobile-controls" class="mobile-controls hidden" aria-hidden="true">
+                <div class="mobile-controls-left">
+                    <div id="mobile-move-pad" class="mobile-move-pad">
+                        <div class="mobile-move-ring"></div>
+                        <div id="mobile-move-knob" class="mobile-move-knob"></div>
+                    </div>
+                </div>
+                <div class="mobile-controls-right">
+                    <div class="mobile-top-actions">
+                        <button id="mobile-speed-down-btn" class="mobile-btn compact" type="button" aria-label="Decrease speed">-SPD</button>
+                        <button id="mobile-speed-up-btn" class="mobile-btn compact" type="button" aria-label="Increase speed">+SPD</button>
+                        <button id="mobile-warp-btn" class="mobile-btn compact" type="button" aria-label="Warp to base">WARP</button>
+                    </div>
+                    <div class="mobile-main-actions">
+                        <button id="mobile-precision-btn" class="mobile-btn" type="button" aria-label="Precision aim">AIM</button>
+                        <button id="mobile-boost-btn" class="mobile-btn" type="button" aria-label="Boost">BOOST</button>
+                        <button id="mobile-fire-btn" class="mobile-btn fire" type="button" aria-label="Fire weapon">FIRE</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Base Station Menu -->
@@ -301,7 +323,7 @@
                 </div>
 
                 <div class="base-actions">
-                    <div class="base-hint">F: Warp to base | SHIFT/RMB: Precision aim | Click upgrade to buy</div>
+                    <div class="base-hint">F or WARP: Warp to base | SHIFT/RMB or AIM: Precision | Tap/Click upgrade to buy</div>
                     <button id="resume-btn" class="base-resume">Resume</button>
                 </div>
             </div>

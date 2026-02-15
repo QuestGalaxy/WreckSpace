@@ -65,6 +65,18 @@
 4.  **Open in Browser:**
     Navigate to the local URL provided by Vite (usually `http://localhost:5173`).
 
+## ☁️ Deployment (Nixpacks)
+
+This repository includes a `nixpacks.toml` file for auto-deploy platforms.
+
+- Install: `npm ci`
+- Build: `npm run build`
+- Start: `npm run start`
+
+`npm run start` runs a small Node server (`server.mjs`) that serves the `dist/` folder on `0.0.0.0:$PORT`.
+
+If your platform dashboard has a manual Start Command set to only `/bin/bash -c` (or an empty command), clear it and let Nixpacks use the repo config.
+
 ## 🔮 Future Roadmap
 
 - [ ] Multiple enemy types and AI behaviors.

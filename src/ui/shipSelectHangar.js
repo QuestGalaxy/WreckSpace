@@ -51,6 +51,8 @@ export class ShipSelectHangar {
       name: document.getElementById('ship-name'),
       klass: document.getElementById('ship-class'),
       desc: document.getElementById('ship-desc'),
+      styleTags: document.getElementById('ship-style-tags'),
+      recommendation: document.getElementById('ship-recommendation'),
       hull: document.getElementById('ship-hull'),
       speed: document.getElementById('ship-speed'),
       cargo: document.getElementById('ship-storage'),
@@ -130,7 +132,7 @@ export class ShipSelectHangar {
     this._onKeyDown = (e) => {
       if (e.code === 'ArrowLeft') this.setIndex(this._index - 1);
       else if (e.code === 'ArrowRight') this.setIndex(this._index + 1);
-      else if (e.code === 'Enter') this.onSelect?.(this.ships[this._index]);
+      else if (e.code === 'Enter' || e.code === 'Space') this.onSelect?.(this.ships[this._index]);
     };
     window.addEventListener('keydown', this._onKeyDown);
 
@@ -466,9 +468,32 @@ export class ShipSelectHangar {
     else if (ship.id === 'balanced') shipClass = 'Standard Class';
     else if (ship.id === 'miner') shipClass = 'Industrial Class';
 
+
+    const tagsById = {
+      scout: ['Aggressive', 'Interceptor', 'Hit & Run'],
+      balanced: ['All-Rounder', 'Beginner Friendly', 'Sustained Fight'],
+      miner: ['Tank', 'Cargo Heavy', 'Long Run']
+    };
+    const recById = {
+      scout: 'Best for advanced pilots: quick objective clears and evasive play.',
+      balanced: 'Recommended first pick: forgiving hull with stable speed and cargo.',
+      miner: 'Best for economy runs: survive longer and return with full cargo.'
+    };
     if (this.el.name) this.el.name.textContent = ship.name;
     if (this.el.klass) this.el.klass.textContent = shipClass;
     if (this.el.desc) this.el.desc.textContent = ship.description ?? '';
+
+    if (this.el.styleTags) {
+      this.el.styleTags.innerHTML = '';
+      for (const t of (tagsById[ship.id] ?? ['General'])) {
+        const chip = document.createElement('span');
+        chip.className = 'ship-style-tag';
+        chip.textContent = t;
+        this.el.styleTags.appendChild(chip);
+      }
+    }
+    if (this.el.recommendation) this.el.recommendation.textContent = recById[ship.id] ?? '';
+
 
     if (this.el.hull) this.el.hull.textContent = String(ship.hull ?? 0);
     if (this.el.speed) this.el.speed.textContent = String(ship.speed ?? 0);

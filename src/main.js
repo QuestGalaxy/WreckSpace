@@ -6,7 +6,12 @@ import { EntryScene } from './ui/entryScene.js';
 
 const SETTINGS_KEY = 'wreckspace.settings.v1';
 const DEFAULT_SETTINGS = {
-    invertPitch: false
+    invertPitch: false,
+    quality: 'auto',
+    uiScale: 1,
+    contrast: 'default',
+    colorVision: 'default',
+    mobileHudSide: 'default'
 };
 
 function loadSettings() {
@@ -21,6 +26,19 @@ function loadSettings() {
     } catch (_) {
         return { ...DEFAULT_SETTINGS };
     }
+}
+
+
+function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+}
+
+function applyVisualSettings() {
+    const root = document.documentElement;
+    root.style.setProperty('--ui-scale', String(clamp(Number(appSettings.uiScale) || 1, 0.85, 1.25)));
+    root.dataset.contrast = appSettings.contrast === 'high' ? 'high' : 'default';
+    root.dataset.colorVision = appSettings.colorVision || 'default';
+    root.dataset.mobileHudSide = appSettings.mobileHudSide || 'default';
 }
 
 const entryScreen = document.getElementById('entry-screen');
@@ -63,6 +81,7 @@ const hudController = new HudController(document);
 let hangar = null;
 let entryScene = null;
 let appSettings = loadSettings();
+applyVisualSettings();
 
 function saveSettings(nextPartial) {
     appSettings = {
@@ -74,8 +93,17 @@ function saveSettings(nextPartial) {
     } catch (_) {
         // ignore storage issues (private mode, quota, etc.)
     }
+    applyVisualSettings();
     if (game && typeof game.setInvertPitch === 'function') {
         game.setInvertPitch(!!appSettings.invertPitch);
+    }
+    if (appSettings.quality && appSettings.quality !== 'auto') {
+        const q = String(appSettings.quality);
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('quality') !== q) {
+            url.searchParams.set('quality', q);
+            history.replaceState(null, '', url.toString());
+        }
     }
 }
 
@@ -88,9 +116,12 @@ if (entryScreen && !entryScreen.classList.contains('hidden')) {
     entryScene.init();
 }
 
-const goToHangar = () => {
+const goToHangar = (opts = {}) => {
     entryScreen.classList.add('hidden');
     selectionScreen.classList.remove('hidden');
+    const mode = opts.mode ?? 'main';
+    const modeInput = document.querySelector(`input[name="world-mode"][value="${mode}"]`);
+    if (modeInput) modeInput.checked = true;
 
     // Dispose Entry Scene
     if (entryScene) {
@@ -110,10 +141,10 @@ const goToHangar = () => {
 };
 
 if (startBtn) {
-    startBtn.addEventListener('click', goToHangar);
+    startBtn.addEventListener('click', () => goToHangar({ mode: 'main' }));
 }
 if (hangarBtn) {
-    hangarBtn.addEventListener('click', goToHangar);
+    hangarBtn.addEventListener('click', () => goToHangar({ mode: 'testArea' }));
 }
 if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
@@ -133,11 +164,47 @@ if (settingsBtn) {
             <div class="setting-row">
                 <div class="setting-label">Graphics Quality</div>
                 <div class="setting-control">
-                    <select>
-                        <option>LOW</option>
-                        <option selected>MEDIUM</option>
-                        <option>HIGH</option>
-                        <option>ULTRA</option>
+                    <select id="setting-quality">
+                        <option value="auto" ${appSettings.quality === 'auto' ? 'selected' : ''}>AUTO</option>
+                        <option value="low" ${appSettings.quality === 'low' ? 'selected' : ''}>LOW</option>
+                        <option value="medium" ${appSettings.quality === 'medium' ? 'selected' : ''}>MEDIUM</option>
+                        <option value="high" ${appSettings.quality === 'high' ? 'selected' : ''}>HIGH</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">UI Scale</div>
+                <div class="setting-control">
+                    <input id="setting-ui-scale" type="range" min="85" max="125" value="${Math.round((appSettings.uiScale ?? 1) * 100)}"> 
+                    <span id="setting-ui-scale-value">${Math.round((appSettings.uiScale ?? 1) * 100)}%</span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">Contrast</div>
+                <div class="setting-control">
+                    <select id="setting-contrast">
+                        <option value="default" ${appSettings.contrast === 'default' ? 'selected' : ''}>DEFAULT</option>
+                        <option value="high" ${appSettings.contrast === 'high' ? 'selected' : ''}>HIGH</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">Color Vision Preset</div>
+                <div class="setting-control">
+                    <select id="setting-color-vision">
+                        <option value="default" ${appSettings.colorVision === 'default' ? 'selected' : ''}>DEFAULT</option>
+                        <option value="deuteranopia" ${appSettings.colorVision === 'deuteranopia' ? 'selected' : ''}>DEUTERANOPIA</option>
+                        <option value="protanopia" ${appSettings.colorVision === 'protanopia' ? 'selected' : ''}>PROTANOPIA</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">Mobile HUD Side</div>
+                <div class="setting-control">
+                    <select id="setting-mobile-hud-side">
+                        <option value="default" ${appSettings.mobileHudSide === 'default' ? 'selected' : ''}>DEFAULT</option>
+                        <option value="left" ${appSettings.mobileHudSide === 'left' ? 'selected' : ''}>LEFT-HANDED</option>
+                        <option value="right" ${appSettings.mobileHudSide === 'right' ? 'selected' : ''}>RIGHT-HANDED</option>
                     </select>
                 </div>
             </div>
@@ -150,6 +217,7 @@ if (settingsBtn) {
                     </label>
                 </div>
             </div>
+            <div class="setting-help">Graphics quality changes apply immediately to future sessions. Use URL <code>?quality=low|medium|high</code> to force profile.</div>
         `;
         openModal("SYSTEM CONFIG", html);
 
@@ -162,6 +230,26 @@ if (settingsBtn) {
                 if (stateText) stateText.textContent = next ? 'Enabled' : 'Disabled';
             });
         }
+
+        const qualityEl = document.getElementById('setting-quality');
+        qualityEl?.addEventListener('change', () => saveSettings({ quality: qualityEl.value }));
+
+        const uiScaleEl = document.getElementById('setting-ui-scale');
+        const uiScaleValueEl = document.getElementById('setting-ui-scale-value');
+        uiScaleEl?.addEventListener('input', () => {
+            const nextScale = clamp(Number(uiScaleEl.value) / 100, 0.85, 1.25);
+            if (uiScaleValueEl) uiScaleValueEl.textContent = `${Math.round(nextScale * 100)}%`;
+            saveSettings({ uiScale: nextScale });
+        });
+
+        const contrastEl = document.getElementById('setting-contrast');
+        contrastEl?.addEventListener('change', () => saveSettings({ contrast: contrastEl.value }));
+
+        const cvEl = document.getElementById('setting-color-vision');
+        cvEl?.addEventListener('change', () => saveSettings({ colorVision: cvEl.value }));
+
+        const mobileHudEl = document.getElementById('setting-mobile-hud-side');
+        mobileHudEl?.addEventListener('change', () => saveSettings({ mobileHudSide: mobileHudEl.value }));
     });
 }
 if (creditsBtn) {
@@ -204,4 +292,5 @@ function startGame(selectedShip) {
         invertPitch: !!appSettings.invertPitch
     });
     game.init();
+    hudController.setHintPreset(mode === 'testArea' ? 'tutorial' : 'desktop');
 }

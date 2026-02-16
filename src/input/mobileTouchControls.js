@@ -44,6 +44,7 @@ export class MobileTouchControls {
     this.root.classList.remove('hidden');
     this.root.classList.remove('inactive');
     this.root.setAttribute('aria-hidden', 'false');
+    this._applyLayoutPreference();
 
     this._bind(this.root, 'contextmenu', (e) => e.preventDefault());
     this._bindMovePad();
@@ -62,6 +63,20 @@ export class MobileTouchControls {
       this.root.setAttribute('aria-hidden', 'true');
     }
     this.enabled = false;
+  }
+
+
+  _applyLayoutPreference() {
+    if (!this.root) return;
+    let pref = 'default';
+    try {
+      const raw = localStorage.getItem('wreckspace.settings.v1');
+      const parsed = raw ? JSON.parse(raw) : null;
+      pref = parsed?.mobileHudSide ?? 'default';
+    } catch (_) {
+      pref = 'default';
+    }
+    this.root.dataset.hand = pref;
   }
 
   _bind(target, type, handler, options) {
@@ -109,13 +124,19 @@ export class MobileTouchControls {
     const release = (pointerId) => {
       if (!activePointers.has(pointerId)) return;
       activePointers.delete(pointerId);
-      if (activePointers.size === 0) onRelease?.();
+      if (activePointers.size === 0) {
+        btn.classList.remove('active');
+        onRelease?.();
+      }
     };
 
     const onDown = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (activePointers.size === 0) onPress?.();
+      if (activePointers.size === 0) {
+        btn.classList.add('active');
+        onPress?.();
+      }
       activePointers.add(e.pointerId);
       btn.setPointerCapture?.(e.pointerId);
     };

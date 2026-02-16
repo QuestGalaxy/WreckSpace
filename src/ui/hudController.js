@@ -67,10 +67,13 @@ export class HudController {
 
     this.crosshair = doc.getElementById('crosshair-container');
     this.lockPip = doc.getElementById('lock-pip');
+    this.combatStatusEl = doc.getElementById('combat-status');
+    this.hudAlertsEl = doc.getElementById('hud-alerts');
     this.mobileControlsRoot = doc.getElementById('mobile-controls');
     // UI tuning: by default, keep the crosshair slightly above exact screen center so it doesn't sit on the ship.
     // Negative Y moves it upward.
     this.crosshairOffsetPx = { x: 0, y: -42 };
+    this._hintMode = 'desktop';
 
     this.baseMarker = doc.getElementById('base-marker');
     this.baseMarkerDist = this.baseMarker?.querySelector('.marker-dist') ?? null;
@@ -135,6 +138,7 @@ export class HudController {
           ? 'linear-gradient(90deg, #ff0000, #ff4400)'
           : 'linear-gradient(90deg, #0088ff, #00ffff)';
     }
+    this.shieldBar?.classList.toggle('critical', shieldPercent < 25);
 
     const hullPercent = s.maxHull > 0 ? Math.max(0, (s.hull / s.maxHull) * 100) : 0;
     if (this.hullEl) this.hullEl.textContent = `${Math.floor(hullPercent)}%`;
@@ -145,25 +149,27 @@ export class HudController {
           ? 'linear-gradient(90deg, #ff0000, #ff4400)'
           : 'linear-gradient(90deg, #44ff44, #88ff88)';
     }
+    this.hullBar?.classList.toggle('critical', hullPercent < 25);
 
     if (this.coinEl) this.coinEl.textContent = String(s.coin ?? 0);
     if (this.gemEl) this.gemEl.textContent = String(s.gem ?? 0);
 
     if (this.cargoUsedEl) this.cargoUsedEl.textContent = String(s.cargoUsed ?? 0);
     if (this.cargoMaxEl) this.cargoMaxEl.textContent = String(s.cargoMax ?? 0);
+    const cargoPct = s.cargoMax > 0 ? Math.min(100, (s.cargoUsed / s.cargoMax) * 100) : 0;
     if (this.cargoBar) {
-      const p = s.cargoMax > 0 ? Math.min(100, (s.cargoUsed / s.cargoMax) * 100) : 0;
-      this.cargoBar.style.width = `${p}%`;
+      this.cargoBar.style.width = `${cargoPct}%`;
       this.cargoBar.style.background =
-        p > 90
+        cargoPct > 90
           ? 'linear-gradient(90deg, #ff8800, #ff0000)'
           : 'linear-gradient(90deg, #0088ff, #00ffff)';
     }
+    this.cargoBar?.classList.toggle('critical', cargoPct > 95);
 
-    // Keep warp cooldown as a subtle HUD message (no dedicated widget yet).
-    if (s.warpCooldownLeftSec > 0.01) {
-      // Do nothing; Game is expected to message on attempted warp.
-    }
+    if (shieldPercent <= 20) this.showAlert('Shield critical', { kind: 'warning' });
+    if (hullPercent <= 18) this.showAlert('Hull critical', { kind: 'error' });
+    if (cargoPct >= 96) this.showAlert('Cargo almost full', { kind: 'warning' });
+    if (s.warpCooldownLeftSec <= 0.05) this.showAlert('Warp ready', { kind: 'success' });
   }
 
   /**
@@ -280,6 +286,7 @@ export class HudController {
     msgDiv.className = 'message';
     msgDiv.textContent = text;
     if (opts.isError) msgDiv.dataset.kind = 'error';
+    if (opts.kind) msgDiv.dataset.kind = String(opts.kind);
 
     this.messagesEl.innerHTML = '';
     this.messagesEl.appendChild(msgDiv);
@@ -291,6 +298,59 @@ export class HudController {
         if (this.messagesEl.contains(msgDiv)) this.messagesEl.removeChild(msgDiv);
       }, 500);
     }, 2500);
+  }
+
+
+  /**
+   * @param {'desktop'|'mobile'|'tutorial'} mode
+   */
+  setHintPreset(mode) {
+    this._hintMode = mode;
+    const map = {
+      desktop: 'WASD steer | Shift precision strafe | Z boost | Space/Click fire | F warp',
+      mobile: 'Left pad steer | Hold FIRE/BOOST | Tap +/- speed | WARP to deposit cargo',
+      tutorial: 'Track target with crosshair | short bursts | collect loot then warp'
+    };
+    this.setControlsHint(map[mode] ?? map.desktop);
+  }
+
+  /**
+   * @param {string} text
+   * @param {{ kind?: 'info'|'warning'|'error'|'success' }} [opts]
+   */
+  showAlert(text, opts = {}) {
+    if (!this.hudAlertsEl || !text) return;
+    const key = `${opts.kind ?? 'info'}:${String(text).toLowerCase()}`;
+    const now = Date.now();
+    if (!this._alertCache) this._alertCache = new Map();
+    const prev = this._alertCache.get(key) ?? 0;
+    if (now - prev < 3000) return;
+    this._alertCache.set(key, now);
+
+    const el = this.doc.createElement('div');
+    el.className = 'hud-alert';
+    el.textContent = text;
+    el.dataset.kind = opts.kind ?? 'info';
+    this.hudAlertsEl.appendChild(el);
+
+    setTimeout(() => {
+      el.classList.add('fade');
+      setTimeout(() => el.remove(), 250);
+    }, 1400);
+  }
+
+  /**
+   * @param {'searching'|'locked'|'outOfRange'} mode
+   */
+  setCombatStatus(mode) {
+    if (!this.combatStatusEl) return;
+    const labels = {
+      searching: 'SEARCHING TARGET',
+      locked: 'TARGET LOCKED',
+      outOfRange: 'TARGET LOST'
+    };
+    this.combatStatusEl.textContent = labels[mode] ?? labels.searching;
+    this.combatStatusEl.dataset.mode = mode;
   }
 
   setBaseMenuVisible(visible) {
@@ -353,6 +413,7 @@ export class HudController {
     if (!this.crosshair) return;
     if (locked) this.crosshair.classList.add('locked');
     else this.crosshair.classList.remove('locked');
+    this.setCombatStatus(locked ? 'locked' : 'searching');
   }
 
   crosshairSetScreenPos(x, y) {
@@ -389,6 +450,7 @@ export class HudController {
     // Force style flush so the snap happens before we restore transitions.
     void this.crosshair.offsetWidth;
     this.crosshair.style.transition = prevTransition;
+    this.setCombatStatus('outOfRange');
   }
 
   crosshairSetLockedTransform() {
@@ -415,6 +477,7 @@ export class HudController {
   lockPipSetVisible(visible) {
     if (!this.lockPip) return;
     this.lockPip.classList.toggle('visible', !!visible);
+    if (!visible) this.setCombatStatus('searching');
   }
 
   lockPipSetScreenPos(x, y) {

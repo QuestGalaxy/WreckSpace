@@ -327,7 +327,7 @@ export class Game {
             };
 
             if (this.hud?.setControlsHint) {
-                this.hud.setControlsHint('WASD: Drive | 2x UP/DOWN: Speed | Z: Boost | CLICK/SPACE/X: Fire | SHIFT/RMB: Precision');
+                this.hud.setHintPreset?.('tutorial');
             }
             if (this.hud?.setBaseMarkerVisible) this.hud.setBaseMarkerVisible(false);
 
@@ -389,7 +389,7 @@ export class Game {
         if (this.mobileControlsEnabled) {
             this.applyMobileCameraProfile();
             if (this.hud?.setControlsHint) {
-                this.hud.setControlsHint('Swipe Pad: Steer | Fire: Tap/Hold | Boost: Hold | +/-: Speed | Warp: Button');
+                this.hud.setHintPreset?.('mobile');
             }
         }
 
@@ -2168,7 +2168,11 @@ export class Game {
             text.includes('cooling down') ||
             text.includes('Destroyed');
         if (isError) this.soundManager.playError();
-        if (this.hud) this.hud.showMessage(text, { isError });
+        let kind = 'info';
+        if (isError) kind = 'error';
+        else if (text.includes('Warp ready') || text.includes('Warped')) kind = 'success';
+        else if (text.includes('Speed')) kind = 'warning';
+        if (this.hud) this.hud.showMessage(text, { isError, kind });
     }
 
     updateHudStats() {

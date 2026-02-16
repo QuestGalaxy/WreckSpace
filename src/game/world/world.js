@@ -29,6 +29,9 @@ export class World {
     /** @type {Map<number, { x: number, y: number, z: number }>} */
     this.velocity = new Map();
 
+    /** @type {Map<number, { x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, ownerEntityId?: number|null, targetEntityId?: number|null }>} */
+    this.bullet = new Map();
+
     /**
      * Quaternion rotation storage (used by player first to preserve local-axis rotations).
      * @type {Map<number, { x: number, y: number, z: number, w: number }>}
@@ -93,9 +96,30 @@ export class World {
     this.loot.delete(entityId);
     this.transform.delete(entityId);
     this.velocity.delete(entityId);
+    this.bullet.delete(entityId);
     this.rotationQuat.delete(entityId);
     this.lootMotion.delete(entityId);
     this.spin.delete(entityId);
+  }
+
+  /**
+   * @param {{ x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, ownerEntityId?: number|null, targetEntityId?: number|null }} state
+   * @returns {number} entityId
+   */
+  createBullet(state) {
+    const id = this.createEntity();
+    this.bullet.set(id, {
+      x: state.x,
+      y: state.y,
+      z: state.z,
+      vx: state.vx,
+      vy: state.vy,
+      vz: state.vz,
+      life: state.life,
+      ownerEntityId: state.ownerEntityId ?? null,
+      targetEntityId: state.targetEntityId ?? null
+    });
+    return id;
   }
 
   /**

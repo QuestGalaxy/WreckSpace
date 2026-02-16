@@ -148,7 +148,35 @@ export const V1 = Object.freeze({
       drops: Object.freeze({ coin: 260, gem: 320 }),
       powerupDropChance: 0.22,
       explosionMul: 1.18
-    })
+    }),
+
+    enemy_scout: Object.freeze({
+      kind: 'enemy_scout',
+      type: 'enemy',
+      hp: 45,
+      drops: Object.freeze({ coin: 30, gem: 20 }),
+      powerupDropChance: 0.04,
+      explosionMul: 0.75,
+      enemy: Object.freeze({ moveSpeed: 8.5, stopDistance: 260, strafe: 2.2, shotCooldownSec: 1.9, shotRange: 900, shotDamage: 4, bulletSpeed: 10.5 })
+    }),
+    enemy_striker: Object.freeze({
+      kind: 'enemy_striker',
+      type: 'enemy',
+      hp: 85,
+      drops: Object.freeze({ coin: 55, gem: 40 }),
+      powerupDropChance: 0.08,
+      explosionMul: 0.9,
+      enemy: Object.freeze({ moveSpeed: 7.2, stopDistance: 320, strafe: 1.4, shotCooldownSec: 1.45, shotRange: 980, shotDamage: 7, bulletSpeed: 11.5 })
+    }),
+    enemy_tank: Object.freeze({
+      kind: 'enemy_tank',
+      type: 'enemy',
+      hp: 180,
+      drops: Object.freeze({ coin: 95, gem: 70 }),
+      powerupDropChance: 0.13,
+      explosionMul: 1.1,
+      enemy: Object.freeze({ moveSpeed: 4.4, stopDistance: 380, strafe: 0.6, shotCooldownSec: 2.8, shotRange: 1150, shotDamage: 12, bulletSpeed: 8.3 })
+    }),
   }),
 
   collisionDamage: Object.freeze({
@@ -171,6 +199,11 @@ export const V1 = Object.freeze({
       small: 15,
       medium: 7,
       large: 4
+    }),
+    enemies: Object.freeze({
+      scout: 8,
+      striker: 5,
+      tank: 3
     })
   })
 });

@@ -833,14 +833,10 @@ export class Game {
 
         // Addons derived.
         const magnetStacks = this.countAddon('magnet');
-        if (magnetStacks > 0 || (pd.magnetRangeMul ?? 1) > 1) {
-            const base = V1.addons.magnet.baseRange ?? 0;
-            const per = V1.addons.magnet.rangePerExtraStack ?? 0;
-            const r = base + Math.max(0, magnetStacks - 1) * per;
-            this.magnetDerived = { range: r * (this.worldScale ?? 1) * (pd.magnetRangeMul ?? 1) };
-        } else {
-            this.magnetDerived = { range: 0 };
-        }
+        const baseMagnet = V1.addons.magnet.baseRange ?? 0;
+        const perMagnetStack = V1.addons.magnet.rangePerExtraStack ?? 0;
+        const magnetRange = baseMagnet + magnetStacks * perMagnetStack;
+        this.magnetDerived = { range: magnetRange * (this.worldScale ?? 1) * (pd.magnetRangeMul ?? 1) };
 
         const shieldStacks = this.countAddon('shield');
         const shieldMax = shieldStacks * (V1.addons.shield.maxPerStack ?? 0) + (pd.bonusShieldMax ?? 0);
@@ -1035,6 +1031,67 @@ export class Game {
             return { id, name: id };
         });
 
+        const fmt = (n, digits = 0) => Number(n).toFixed(digits).replace(/\.0+$/, '');
+        const su = this.shipUpgrades ?? { speed: 0, hull: 0, cargo: 0, warp: 0 };
+        const wu = this.weaponUpgrades ?? { damage: 0, fireRate: 0 };
+        const sCfg = V1.shipUpgrades;
+        const wCfg = V1.weaponUpgrades;
+
+        const speedTier = Math.min(sCfg.maxTier ?? 3, Math.max(0, su.speed ?? 0));
+        const hullTier = Math.min(sCfg.maxTier ?? 3, Math.max(0, su.hull ?? 0));
+        const cargoTier = Math.min(sCfg.maxTier ?? 3, Math.max(0, su.cargo ?? 0));
+        const warpTier = Math.min(sCfg.maxTier ?? 3, Math.max(0, su.warp ?? 0));
+
+        const speedNowMul = 1 + speedTier * (sCfg.speed.deltaMul ?? 0);
+        const speedNextTier = Math.min(sCfg.maxTier ?? 3, speedTier + 1);
+        const speedNextMul = 1 + speedNextTier * (sCfg.speed.deltaMul ?? 0);
+
+        const hullNow = (this.shipData.hull ?? 0) + hullTier * (sCfg.hull.deltaFlat ?? 0);
+        const hullNextTier = Math.min(sCfg.maxTier ?? 3, hullTier + 1);
+        const hullNext = (this.shipData.hull ?? 0) + hullNextTier * (sCfg.hull.deltaFlat ?? 0);
+
+        const cargoNow = (this.shipData.cargo ?? 0) + cargoTier * (sCfg.cargo.deltaFlat ?? 0);
+        const cargoNextTier = Math.min(sCfg.maxTier ?? 3, cargoTier + 1);
+        const cargoNext = (this.shipData.cargo ?? 0) + cargoNextTier * (sCfg.cargo.deltaFlat ?? 0);
+
+        const warpNowRaw = (this.shipData.warpCooldownSec ?? 10) - warpTier * (sCfg.warp.deltaSec ?? 0);
+        const warpNow = Math.max(sCfg.warp.minCooldownSec ?? 0, warpNowRaw);
+        const warpNextTier = Math.min(sCfg.maxTier ?? 3, warpTier + 1);
+        const warpNextRaw = (this.shipData.warpCooldownSec ?? 10) - warpNextTier * (sCfg.warp.deltaSec ?? 0);
+        const warpNext = Math.max(sCfg.warp.minCooldownSec ?? 0, warpNextRaw);
+
+        const weaponLevel = Math.max(1, Math.min(3, this.weaponLevelTier ?? 1));
+        const levelMulNow = V1.weaponLevels.tiers?.[weaponLevel]?.damageMultiplier ?? 1;
+        const levelMulNext = V1.weaponLevels.tiers?.[Math.min(3, weaponLevel + 1)]?.damageMultiplier ?? levelMulNow;
+
+        const dmgTier = Math.min(wCfg.maxTier ?? 3, Math.max(0, wu.damage ?? 0));
+        const dmgTierNext = Math.min(wCfg.maxTier ?? 3, dmgTier + 1);
+        const dmgBaseNow = (V1.weapon.baseDamage ?? 0) + dmgTier * (wCfg.damage.deltaFlat ?? 0);
+        const dmgBaseNext = (V1.weapon.baseDamage ?? 0) + dmgTierNext * (wCfg.damage.deltaFlat ?? 0);
+        const dmgNow = dmgBaseNow * levelMulNow;
+        const dmgNext = dmgBaseNext * levelMulNow;
+
+        const frTier = Math.min(wCfg.maxTier ?? 3, Math.max(0, wu.fireRate ?? 0));
+        const frTierNext = Math.min(wCfg.maxTier ?? 3, frTier + 1);
+        const fireNowRaw = (V1.weapon.baseFireRateMs ?? 600) - frTier * (wCfg.fireRate.deltaMs ?? 0);
+        const fireNow = Math.max(wCfg.fireRate.minFireRateMs ?? 1, fireNowRaw);
+        const fireNextRaw = (V1.weapon.baseFireRateMs ?? 600) - frTierNext * (wCfg.fireRate.deltaMs ?? 0);
+        const fireNext = Math.max(wCfg.fireRate.minFireRateMs ?? 1, fireNextRaw);
+
+        const magnetStacks = this.countAddon('magnet');
+        const magnetBase = V1.addons.magnet.baseRange ?? 0;
+        const magnetPer = V1.addons.magnet.rangePerExtraStack ?? 0;
+        const magnetNow = magnetBase + magnetStacks * magnetPer;
+        const magnetNext = magnetBase + (magnetStacks + 1) * magnetPer;
+
+        const shieldStacks = this.countAddon('shield');
+        const shieldMaxPer = V1.addons.shield.maxPerStack ?? 0;
+        const shieldRegenPer = V1.addons.shield.regenPerStackPerSec ?? 0;
+        const shieldNowMax = shieldStacks * shieldMaxPer;
+        const shieldNextMax = (shieldStacks + 1) * shieldMaxPer;
+        const shieldNowRegen = shieldStacks * shieldRegenPer;
+        const shieldNextRegen = (shieldStacks + 1) * shieldRegenPer;
+
         this.hud.setBaseMenuState({
             coin: this.stats.coin,
             gem: this.stats.gem,
@@ -1050,6 +1107,23 @@ export class Game {
                 weapon: weaponDisabled,
                 craftWeaponLevel: craftDisabled,
                 addon: addonDisabled
+            },
+            previews: {
+                ship: {
+                    speed: speedTier >= maxTierShip ? `Current x${fmt(speedNowMul, 2)} (MAX)` : `Current x${fmt(speedNowMul, 2)} → Next x${fmt(speedNextMul, 2)}`,
+                    hull: hullTier >= maxTierShip ? `Current ${fmt(hullNow)} HP (MAX)` : `Current ${fmt(hullNow)} HP → Next ${fmt(hullNext)} HP`,
+                    cargo: cargoTier >= maxTierShip ? `Current ${fmt(cargoNow)} slots (MAX)` : `Current ${fmt(cargoNow)} slots → Next ${fmt(cargoNext)} slots`,
+                    warp: warpTier >= maxTierShip ? `Current ${fmt(warpNow, 1)}s cooldown (MAX)` : `Current ${fmt(warpNow, 1)}s cooldown → Next ${fmt(warpNext, 1)}s`
+                },
+                weapon: {
+                    damage: dmgTier >= maxTierWeapon ? `Current ${fmt(dmgNow, 1)} dmg/shot (MAX)` : `Current ${fmt(dmgNow, 1)} dmg/shot → Next ${fmt(dmgNext, 1)}`,
+                    fireRate: frTier >= maxTierWeapon ? `Current ${fmt(fireNow)}ms/shot (MAX)` : `Current ${fmt(fireNow)}ms/shot → Next ${fmt(fireNext)}ms`,
+                    level: lvl >= 3 ? `Level ${lvl} (x${fmt(levelMulNow, 2)}) MAX` : `Level ${lvl} x${fmt(levelMulNow, 2)} → Level ${nextLvl} x${fmt(levelMulNext, 2)}`
+                },
+                addon: {
+                    magnet: `Current ${magnetStacks} stack(s), radius ${fmt(magnetNow)} → Next ${fmt(magnetNext)}`,
+                    shield: `Current ${shieldStacks} stack(s), +${fmt(shieldNowMax)} shield / +${fmt(shieldNowRegen, 1)}s regen → Next +${fmt(shieldNextMax)} / +${fmt(shieldNextRegen, 1)}s`
+                }
             },
             addonSlots: slotObjs
         });

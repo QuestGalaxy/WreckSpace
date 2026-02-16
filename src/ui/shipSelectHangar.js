@@ -9,6 +9,11 @@ function clamp(x, a, b) {
   return Math.max(a, Math.min(b, x));
 }
 
+function isMobileViewport() {
+  const coarse = window.matchMedia?.('(pointer: coarse)')?.matches === true;
+  return coarse || window.innerWidth <= 900;
+}
+
 export class ShipSelectHangar {
   /**
    * @param {{
@@ -62,6 +67,15 @@ export class ShipSelectHangar {
     this.theme = {
       ship: { dark: 0x1b1f2a, accent: 0xffaa22, glass: 0x0b1222, thruster: 0xff6600 } // Vibrant Orange Lava
     };
+  }
+
+  _getCameraBasePosition() {
+    const ws = this.worldScale;
+    if (isMobileViewport()) {
+      // Mobile: pull back a bit so the selected ship doesn't fill the screen.
+      return new THREE.Vector3(22 * ws, 74 * ws, 252 * ws);
+    }
+    return new THREE.Vector3(18 * ws, 66 * ws, 182 * ws);
   }
 
   init() {
@@ -187,7 +201,8 @@ export class ShipSelectHangar {
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 5000 * this.worldScale);
     // Requested: a bit farther and higher so the ship reads better.
-    this.camera.position.set(18 * this.worldScale, 66 * this.worldScale, 182 * this.worldScale);
+    const camBase = this._getCameraBasePosition();
+    this.camera.position.copy(camBase);
     this.camera.lookAt(0, 22 * this.worldScale, 0);
 
     // Hangar should be crystal clear (no CRT pixelation).
@@ -519,7 +534,7 @@ export class ShipSelectHangar {
       this.camera.position.y += (Math.random() - 0.5) * 2 * this._glitch * this.worldScale;
     } else {
       // Return to base position
-      const basePos = new THREE.Vector3(18 * this.worldScale, 66 * this.worldScale, 182 * this.worldScale);
+      const basePos = this._getCameraBasePosition();
       this.camera.position.lerp(basePos, 0.1);
     }
 

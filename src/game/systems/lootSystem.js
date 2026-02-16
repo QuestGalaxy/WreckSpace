@@ -185,6 +185,7 @@ export class LootSystem {
       }
       g.soundManager.playCollect();
       g.activatePowerup(meta.powerupId);
+      g.telemetry?.track?.('loot.powerup', { id: meta.powerupId });
       return;
     }
 
@@ -198,12 +199,14 @@ export class LootSystem {
     const lootObj = g.renderRegistry.get(entityId);
     g.world.removeEntity(entityId);
 
-    if (meta.type === 'coin') g.stats.coin = (g.stats.coin ?? 0) + (meta.value ?? value ?? 0);
-    else if (meta.type === 'gem') g.stats.gem = (g.stats.gem ?? 0) + (meta.value ?? value ?? 0);
+    const pickupValue = meta.value ?? value ?? 0;
+    if (meta.type === 'coin') g.stats.coin = (g.stats.coin ?? 0) + pickupValue;
+    else if (meta.type === 'gem') g.stats.gem = (g.stats.gem ?? 0) + pickupValue;
 
     if (usesCargo) g.stats.cargoUsed = (g.stats.cargoUsed ?? 0) + 1;
 
     g.soundManager.playCollect();
+    g.telemetry?.track?.('loot.collected', { type: meta.type ?? 'unknown', value: pickupValue, usesCargo });
     if (lootObj) {
       g.scene.remove(lootObj);
       if (g.spawner?.releaseLoot) g.spawner.releaseLoot(lootObj);

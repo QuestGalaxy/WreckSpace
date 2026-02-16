@@ -193,23 +193,26 @@ export class MobileTouchControls {
   }
 
   _applyMoveAxes(nx, ny) {
-    const deadzone = 0.22;
-    const left = nx < -deadzone;
-    const right = nx > deadzone;
-    const up = ny < -deadzone;
-    const down = ny > deadzone;
+    const deadzone = 0.30;
+    const mag = Math.hypot(nx, ny);
+    if (mag <= deadzone) {
+      this.game?.clearTouchMoveAxis?.();
+      return;
+    }
 
-    this.game?.setVirtualKey?.('KeyA', left);
-    this.game?.setVirtualKey?.('KeyD', right);
-    this.game?.setVirtualKey?.('KeyW', up);
-    this.game?.setVirtualKey?.('KeyS', down);
+    const dirX = nx / mag;
+    const dirY = ny / mag;
+    const norm = Math.min(1, (mag - deadzone) / (1 - deadzone));
+    // Square curve: finer precision near center, still reaches full throw at edge.
+    const eased = norm * norm;
+    const sensitivity = 0.62;
+    const outX = dirX * eased * sensitivity;
+    const outY = dirY * eased * sensitivity;
+    this.game?.setTouchMoveAxis?.(outX, outY, true);
   }
 
   _clearMoveState() {
-    this.game?.setVirtualKey?.('KeyA', false);
-    this.game?.setVirtualKey?.('KeyD', false);
-    this.game?.setVirtualKey?.('KeyW', false);
-    this.game?.setVirtualKey?.('KeyS', false);
+    this.game?.clearTouchMoveAxis?.();
     if (this._moveKnob) this._moveKnob.style.transform = 'translate(-50%, -50%)';
   }
 }

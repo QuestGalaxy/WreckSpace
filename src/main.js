@@ -4,6 +4,25 @@ import { HudController } from './ui/hudController.js';
 import { ShipSelectHangar } from './ui/shipSelectHangar.js';
 import { EntryScene } from './ui/entryScene.js';
 
+const SETTINGS_KEY = 'wreckspace.settings.v1';
+const DEFAULT_SETTINGS = {
+    invertPitch: false
+};
+
+function loadSettings() {
+    try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (!raw) return { ...DEFAULT_SETTINGS };
+        const parsed = JSON.parse(raw);
+        return {
+            ...DEFAULT_SETTINGS,
+            ...(parsed && typeof parsed === 'object' ? parsed : {})
+        };
+    } catch (_) {
+        return { ...DEFAULT_SETTINGS };
+    }
+}
+
 const entryScreen = document.getElementById('entry-screen');
 const startBtn = document.getElementById('start-btn');
 const hangarBtn = document.getElementById('hangar-btn');
@@ -43,6 +62,22 @@ let game = null;
 const hudController = new HudController(document);
 let hangar = null;
 let entryScene = null;
+let appSettings = loadSettings();
+
+function saveSettings(nextPartial) {
+    appSettings = {
+        ...appSettings,
+        ...(nextPartial && typeof nextPartial === 'object' ? nextPartial : {})
+    };
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings));
+    } catch (_) {
+        // ignore storage issues (private mode, quota, etc.)
+    }
+    if (game && typeof game.setInvertPitch === 'function') {
+        game.setInvertPitch(!!appSettings.invertPitch);
+    }
+}
 
 // Initialize Entry Scene immediately
 if (entryScreen && !entryScreen.classList.contains('hidden')) {
@@ -106,8 +141,27 @@ if (settingsBtn) {
                     </select>
                 </div>
             </div>
+            <div class="setting-row">
+                <div class="setting-label">Invert Pitch (Flight)</div>
+                <div class="setting-control">
+                    <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input id="setting-invert-pitch" type="checkbox" ${appSettings.invertPitch ? 'checked' : ''}>
+                        <span>${appSettings.invertPitch ? 'Enabled' : 'Disabled'}</span>
+                    </label>
+                </div>
+            </div>
         `;
         openModal("SYSTEM CONFIG", html);
+
+        const invertPitchEl = document.getElementById('setting-invert-pitch');
+        if (invertPitchEl) {
+            const stateText = invertPitchEl.nextElementSibling;
+            invertPitchEl.addEventListener('change', () => {
+                const next = !!invertPitchEl.checked;
+                saveSettings({ invertPitch: next });
+                if (stateText) stateText.textContent = next ? 'Enabled' : 'Disabled';
+            });
+        }
     });
 }
 if (creditsBtn) {
@@ -144,6 +198,10 @@ function startGame(selectedShip) {
         'main';
     
     // Initialize the 3D Game
-    game = new Game(selectedShip, { hud: hudController, mode });
+    game = new Game(selectedShip, {
+        hud: hudController,
+        mode,
+        invertPitch: !!appSettings.invertPitch
+    });
     game.init();
 }

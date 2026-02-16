@@ -56,25 +56,24 @@ export class MovementSystem {
     this._quat.set(rq.x, rq.y, rq.z, rq.w);
 
     // Rotational Input (local axes; match Object3D.rotateX/Y/Z semantics)
-    if (keyDown('ArrowUp') || keyDown('KeyW')) {
-      this._qTmp.setFromAxisAngle(this._axisX, -pitchSpeed);
-      this._quat.multiply(this._qTmp);
-    }
-    if (keyDown('ArrowDown') || keyDown('KeyS')) {
-      this._qTmp.setFromAxisAngle(this._axisX, pitchSpeed);
-      this._quat.multiply(this._qTmp);
-    }
+    const keyPitch = (keyDown('ArrowDown') || keyDown('KeyS') ? 1 : 0) + (keyDown('ArrowUp') || keyDown('KeyW') ? -1 : 0);
+    const keyYaw = (keyDown('ArrowLeft') || keyDown('KeyA') ? 1 : 0) + (keyDown('ArrowRight') || keyDown('KeyD') ? -1 : 0);
+    const touchActive = !!g.touchMoveAxis?.active;
+    const touchPitch = touchActive ? THREE.MathUtils.clamp(g.touchMoveAxis.y ?? 0, -1, 1) : 0;
+    const touchYaw = touchActive ? THREE.MathUtils.clamp(-(g.touchMoveAxis.x ?? 0), -1, 1) : 0;
+    const pitchInput = THREE.MathUtils.clamp(keyPitch + touchPitch, -1, 1);
+    const yawInput = THREE.MathUtils.clamp(keyYaw + touchYaw, -1, 1);
+    const pitchSign = g.invertPitch ? -1 : 1;
+    const appliedPitch = pitchInput * pitchSign;
 
-    if (keyDown('ArrowLeft') || keyDown('KeyA')) {
-      this._qTmp.setFromAxisAngle(this._axisY, yawSpeed);
-      this._quat.multiply(this._qTmp);
-      this._qTmp.setFromAxisAngle(this._axisZ, rollSpeed * 0.6);
+    if (Math.abs(appliedPitch) > 0.0001) {
+      this._qTmp.setFromAxisAngle(this._axisX, pitchSpeed * appliedPitch);
       this._quat.multiply(this._qTmp);
     }
-    if (keyDown('ArrowRight') || keyDown('KeyD')) {
-      this._qTmp.setFromAxisAngle(this._axisY, -yawSpeed);
+    if (Math.abs(yawInput) > 0.0001) {
+      this._qTmp.setFromAxisAngle(this._axisY, yawSpeed * yawInput);
       this._quat.multiply(this._qTmp);
-      this._qTmp.setFromAxisAngle(this._axisZ, -rollSpeed * 0.6);
+      this._qTmp.setFromAxisAngle(this._axisZ, rollSpeed * 0.6 * yawInput);
       this._quat.multiply(this._qTmp);
     }
 

@@ -69,13 +69,14 @@ function _sampleFromArray(arr, count, rng = Math.random) {
 export class Game {
     /**
      * @param {any} shipData
-     * @param {{ hud?: import('./ui/hudController.js').HudController, mode?: 'main'|'testArea' }} [deps]
+     * @param {{ hud?: import('./ui/hudController.js').HudController, mode?: 'main'|'testArea', invertPitch?: boolean }} [deps]
      */
     constructor(shipData, deps = {}) {
         this.shipData = shipData;
         this.soundManager = new SoundManager();
         this.hud = deps.hud ?? null;
         this.mode = deps.mode ?? 'main';
+        this.invertPitch = !!deps.invertPitch;
         // Hit feedback profile:
         // - 'cinematic' matches the tuned Test Area feel (louder hit audio, more sparks/glow, more chunks).
         // - 'subtle' is lighter for performance/clarity in crowded scenes.
@@ -134,6 +135,7 @@ export class Game {
         this._fireHeldTouch = false;
         this._precisionHeldMouse = false;
         this._precisionHeldTouch = false;
+        this.touchMoveAxis = { x: 0, y: 0, active: false };
         this.mobileControls = null;
         this.mobileControlsEnabled = false;
 
@@ -374,8 +376,11 @@ export class Game {
 
         this.mobileControls = new MobileTouchControls({ game: this, doc: document });
         this.mobileControlsEnabled = this.mobileControls.attach();
-        if (this.mobileControlsEnabled && this.hud?.setControlsHint) {
-            this.hud.setControlsHint('Swipe Pad: Steer | Fire: Tap/Hold | Boost: Hold | +/-: Speed | Warp: Button');
+        if (this.mobileControlsEnabled) {
+            this.applyMobileCameraProfile();
+            if (this.hud?.setControlsHint) {
+                this.hud.setControlsHint('Swipe Pad: Steer | Fire: Tap/Hold | Boost: Hold | +/-: Speed | Warp: Button');
+            }
         }
 
         // Start Loop
@@ -687,6 +692,23 @@ export class Game {
         this._precisionHeldTouch = !!active;
     }
 
+    setTouchMoveAxis(x, y, active = true) {
+        this.touchMoveAxis.x = Number.isFinite(x) ? x : 0;
+        this.touchMoveAxis.y = Number.isFinite(y) ? y : 0;
+        this.touchMoveAxis.active = !!active;
+    }
+
+    clearTouchMoveAxis() {
+        this.touchMoveAxis.x = 0;
+        this.touchMoveAxis.y = 0;
+        this.touchMoveAxis.active = false;
+    }
+
+    setInvertPitch(enabled) {
+        this.invertPitch = !!enabled;
+        this.showMessage(`Invert Pitch ${this.invertPitch ? 'ON' : 'OFF'}`);
+    }
+
     isPrecisionAimActive() {
         return this.isControlActive('ShiftLeft') || this.isControlActive('ShiftRight') || !!this._precisionHeldMouse || !!this._precisionHeldTouch;
     }
@@ -700,6 +722,20 @@ export class Game {
         if (next === this.throttle.level) return;
         this.throttle.level = next;
         this.showMessage(`Speed ${this.throttle.level}/${this.throttle.max}`);
+    }
+
+    applyMobileCameraProfile() {
+        const cfg = this.cameraConfig ?? {};
+        const hasFollow = typeof cfg.follow === 'number';
+        this.cameraConfig = {
+            ...cfg,
+            // Pull camera back on mobile so ship occupies less screen area.
+            offsetZ: Math.min(typeof cfg.offsetZ === 'number' ? cfg.offsetZ : -30, -44),
+            offsetY: Math.max(typeof cfg.offsetY === 'number' ? cfg.offsetY : 22, 24),
+            boostOffsetZ: Math.min(typeof cfg.boostOffsetZ === 'number' ? cfg.boostOffsetZ : -36, -54),
+            boostOffsetY: Math.max(typeof cfg.boostOffsetY === 'number' ? cfg.boostOffsetY : 20, 22),
+            follow: hasFollow ? Math.min(cfg.follow, 0.08) : 0.08
+        };
     }
 
     _getHudStats() {

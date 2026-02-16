@@ -15,6 +15,7 @@ import { EnvironmentSystem } from './game/systems/environmentSystem.js';
 import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { VoxelDestructionSystem } from './game/systems/voxelDestructionSystem.js';
+import { EnemySystem } from './game/systems/enemySystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
 import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
@@ -164,6 +165,7 @@ export class Game {
         this.vfx = new VfxSystem(this);
         this.spawner = new SpawnSystem(this);
         this.voxelDestruction = new VoxelDestructionSystem(this);
+        this.enemies = new EnemySystem(this);
 
         /** @type {{ kind: 'base' | 'planet', target: any, sprite: THREE.Sprite, yOffset: number, prefix: string, lastText: string, baseScale: THREE.Vector3 }[]} */
         this.distanceLabelTargets = [];
@@ -1957,6 +1959,7 @@ export class Game {
         this.environment.update(dtSec, now);
         this._tickShipSystems(dtSec, now);
         this.cameraSystem.update(dtSec, now);
+        this.enemies.update(dtSec, now);
         this.combat.update(dtSec, now);
         this.voxelDestruction.update(dtSec, now);
         this.updateBaseMarker(dtSec, now);

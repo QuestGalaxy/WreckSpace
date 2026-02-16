@@ -17,6 +17,7 @@ export class CombatSystem {
     this._targetPos = new THREE.Vector3();
     this._targetWorldPos = new THREE.Vector3();
     this._bulletPos = new THREE.Vector3();
+    this._bulletVel = new THREE.Vector3();
     this._noseOffset = new THREE.Vector3(0, 0, 2);
     this._playerPos = new THREE.Vector3();
     this._playerQuat = new THREE.Quaternion();
@@ -288,12 +289,20 @@ export class CombatSystem {
     }
 
     const ws = g.worldScale ?? 1;
-    bullet.userData = {
-      // IMPORTANT: copy the direction vector. `_forward/_dirToObj` are scratch vectors reused
-      // during target-lock updates; bullets need stable per-instance velocity.
-      velocity: new THREE.Vector3().copy(forward).multiplyScalar(15 * ws), // per-tick velocity (fixed timestep @ 60Hz)
-      life: 200
-    };
+    this._bulletVel.copy(forward).multiplyScalar(15 * ws);
+    const bulletEntityId = g.world.createBullet({
+      x: this._bulletPos.x,
+      y: this._bulletPos.y,
+      z: this._bulletPos.z,
+      vx: this._bulletVel.x,
+      vy: this._bulletVel.y,
+      vz: this._bulletVel.z,
+      life: 200,
+      ownerEntityId: g.playerEntityId ?? null,
+      targetEntityId: g.currentTargetEntityId ?? null
+    });
+
+    bullet.userData = { entityId: bulletEntityId };
 
     g.scene.add(bullet);
     g.bullets.push(bullet);
@@ -328,14 +337,26 @@ export class CombatSystem {
 
     for (let i = g.bullets.length - 1; i >= 0; i--) {
       const b = g.bullets[i];
-      // Continuous collision: avoid tunneling through thin voxel shells.
-      this._prevBulletPos.copy(b.position);
-      b.position.addScaledVector(b.userData.velocity, k);
-      b.userData.life--;
-
-      if (b.userData.life <= 0) {
+      const bulletEntityId = b?.userData?.entityId ?? null;
+      const bulletState = bulletEntityId ? g.world.bullet.get(bulletEntityId) : null;
+      if (!bulletState) {
         g.scene.remove(b);
         g.bullets.splice(i, 1);
+        continue;
+      }
+
+      // Continuous collision: avoid tunneling through thin voxel shells.
+      this._prevBulletPos.set(bulletState.x, bulletState.y, bulletState.z);
+      bulletState.x += bulletState.vx * k;
+      bulletState.y += bulletState.vy * k;
+      bulletState.z += bulletState.vz * k;
+      bulletState.life -= 1;
+      b.position.set(bulletState.x, bulletState.y, bulletState.z);
+
+      if (bulletState.life <= 0) {
+        g.scene.remove(b);
+        g.bullets.splice(i, 1);
+        g.world.removeEntity(bulletEntityId);
         continue;
       }
 
@@ -406,7 +427,7 @@ export class CombatSystem {
 
           // Localized impact glow (avoid flashing the entire planet).
           if (g.vfx?.createVoxelHitGlow && obj.userData?.type === 'planet') {
-            g.vfx.createVoxelHitGlow({ obj, hitWorldPos: this._closest, bulletVelWorld: b.userData.velocity, damage: dmg });
+            g.vfx.createVoxelHitGlow({ obj, hitWorldPos: this._closest, bulletVelWorld: this._bulletVel.set(bulletState.vx, bulletState.vy, bulletState.vz), damage: dmg });
           } else if (obj.material) {
             // Subtle hit flash (non-planet, or fallback)
             const isPlanet = obj.userData.type === 'planet';
@@ -445,7 +466,7 @@ export class CombatSystem {
 
           // Voxel destruction: pop cubes from the impact point and carve the object.
           if (g.voxelDestruction?.onHit) {
-            g.voxelDestruction.onHit(entityId, this._closest, b.userData.velocity, dmg);
+            g.voxelDestruction.onHit(entityId, this._closest, this._bulletVel.set(bulletState.vx, bulletState.vy, bulletState.vz), dmg);
           }
 
           // Sticky lock: if you hit a planet, lock it; turning away will release.
@@ -469,6 +490,7 @@ export class CombatSystem {
 
           g.scene.remove(b);
           g.bullets.splice(i, 1);
+          g.world.removeEntity(bulletEntityId);
 
           if (h && h.hp <= 0) {
             g.destroyObjectEntity(entityId);

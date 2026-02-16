@@ -14,6 +14,7 @@
 ### ⚔️ Advanced Combat System
 - **Target Lock:** Automatic target acquisition with visual snap-on crosshairs.
 - **Aim Assist:** Smart projectile guidance when locked onto targets.
+- **Enemy Squadrons:** Scout, Striker, and Tank enemies with distinct movement + fire cadence.
 - **Feedback:** Visual hit markers, screen shake, and impact particles.
 
 ### 🛸 Economy & Progression
@@ -79,7 +80,7 @@ If your platform dashboard has a manual Start Command set to only `/bin/bash -c`
 
 ## 🔮 Future Roadmap
 
-- [ ] Multiple enemy types and AI behaviors.
+- [x] Multiple enemy types and AI behaviors (Scout / Striker / Tank archetypes).
 - [ ] Expanded upgrade system (weapons, engines, shields).
 - [ ] Procedural galaxy generation.
 - [ ] Multiplayer support.

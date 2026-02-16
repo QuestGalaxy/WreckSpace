@@ -44,6 +44,24 @@ export class HudController {
       magnet: doc.getElementById('cost-addon-magnet'),
       shield: doc.getElementById('cost-addon-shield')
     };
+    this.liveDesc = {
+      ship: {
+        speed: doc.getElementById('desc-ship-speed-live'),
+        hull: doc.getElementById('desc-ship-hull-live'),
+        cargo: doc.getElementById('desc-ship-cargo-live'),
+        warp: doc.getElementById('desc-ship-warp-live')
+      },
+      weapon: {
+        damage: doc.getElementById('desc-weapon-damage-live'),
+        fireRate: doc.getElementById('desc-weapon-fireRate-live'),
+        level: doc.getElementById('desc-weapon-level-live')
+      },
+      addon: {
+        magnet: doc.getElementById('desc-addon-magnet-live'),
+        shield: doc.getElementById('desc-addon-shield-live')
+      }
+    };
+
     this.addonSlotsText = doc.getElementById('addon-slots-text');
     this.addonSlotsRoot = doc.getElementById('addon-slots');
 
@@ -165,7 +183,12 @@ export class HudController {
    *    craftWeaponLevel: boolean,
    *    addon: Record<string, boolean>
    *  },
-   *  addonSlots: (null | { id: string, name: string })[]
+   *  addonSlots: (null | { id: string, name: string })[],
+   *  previews?: {
+   *    ship?: Record<string, string>,
+   *    weapon?: Record<string, string>,
+   *    addon?: Record<string, string>
+   *  }
    * }} s
    */
   setBaseMenuState(s) {
@@ -190,6 +213,22 @@ export class HudController {
 
     if (this.costAddon.magnet) this.costAddon.magnet.textContent = `${s.costs?.addon?.magnet ?? 0}g`;
     if (this.costAddon.shield) this.costAddon.shield.textContent = `${s.costs?.addon?.shield ?? 0}g`;
+
+    const previewShip = s.previews?.ship ?? {};
+    const previewWeapon = s.previews?.weapon ?? {};
+    const previewAddon = s.previews?.addon ?? {};
+
+    if (this.liveDesc.ship.speed && previewShip.speed) this.liveDesc.ship.speed.textContent = previewShip.speed;
+    if (this.liveDesc.ship.hull && previewShip.hull) this.liveDesc.ship.hull.textContent = previewShip.hull;
+    if (this.liveDesc.ship.cargo && previewShip.cargo) this.liveDesc.ship.cargo.textContent = previewShip.cargo;
+    if (this.liveDesc.ship.warp && previewShip.warp) this.liveDesc.ship.warp.textContent = previewShip.warp;
+
+    if (this.liveDesc.weapon.damage && previewWeapon.damage) this.liveDesc.weapon.damage.textContent = previewWeapon.damage;
+    if (this.liveDesc.weapon.fireRate && previewWeapon.fireRate) this.liveDesc.weapon.fireRate.textContent = previewWeapon.fireRate;
+    if (this.liveDesc.weapon.level && previewWeapon.level) this.liveDesc.weapon.level.textContent = previewWeapon.level;
+
+    if (this.liveDesc.addon.magnet && previewAddon.magnet) this.liveDesc.addon.magnet.textContent = previewAddon.magnet;
+    if (this.liveDesc.addon.shield && previewAddon.shield) this.liveDesc.addon.shield.textContent = previewAddon.shield;
 
     // Disable buttons by querying via data attributes.
     const root = this.baseMenu;

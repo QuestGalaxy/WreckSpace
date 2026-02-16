@@ -17,7 +17,7 @@
                 
                 <div class="main-menu">
                     <button id="start-btn" class="menu-btn primary">
-                        <span class="btn-text">START MISSION</span>
+                        <span class="btn-text">QUICK LAUNCH</span>
                         <span class="btn-deco"></span>
                     </button>
                     <button id="hangar-btn" class="menu-btn">
@@ -64,7 +64,10 @@
                                 <div id="ship-class" class="ship-class-hangar">Class</div>
                             </div>
 
+                            <div id="ship-style-tags" class="ship-style-tags" aria-live="polite"></div>
+
                             <p id="ship-desc" class="card-desc"></p>
+                            <p id="ship-recommendation" class="ship-recommendation"></p>
 
                             <div class="hangar-actions">
                                 <button id="ship-select" class="hangar-select">Launch</button>
@@ -112,7 +115,7 @@
                             </div>
                         </div>
 
-                        <div class="hangar-hint">← → switch, Enter launch, swipe</div>
+                        <div class="hangar-hint">← → switch | Enter launch | swipe | Space quick launch</div>
                     </div>
 
                     <button id="ship-next" class="hangar-nav" aria-label="Next ship">›</button>
@@ -194,10 +197,12 @@
                 <div class="crosshair-line horizontal"></div>
                 <div class="crosshair-line vertical"></div>
             </div>
+            <div id="combat-status" class="combat-status" aria-live="polite">SEARCHING TARGET</div>
             <!-- Lock marker: shows locked target center without stealing the player's crosshair. -->
             <div id="lock-pip" aria-hidden="true"></div>
 
             <div id="messages"></div>
+            <div id="hud-alerts" class="hud-alerts" aria-live="polite"></div>
 
             <!-- Mobile Touch Controls -->
             <div id="mobile-controls" class="mobile-controls hidden" aria-hidden="true">

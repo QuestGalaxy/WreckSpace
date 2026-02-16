@@ -4,6 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { SoundManager } from './soundManager.js';
 import { FixedTimestepLoop } from './core/fixedTimestepLoop.js';
+import { pickQualityProfile } from './core/qualityProfiles.js';
+import { Telemetry } from './core/telemetry.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MobileTouchControls } from './input/mobileTouchControls.js';
 import { CombatSystem } from './game/systems/combatSystem.js';
@@ -15,6 +17,7 @@ import { EnvironmentSystem } from './game/systems/environmentSystem.js';
 import { VfxSystem } from './game/systems/vfxSystem.js';
 import { SpawnSystem } from './game/systems/spawnSystem.js';
 import { VoxelDestructionSystem } from './game/systems/voxelDestructionSystem.js';
+import { EnemySystem } from './game/systems/enemySystem.js';
 import { World } from './game/world/world.js';
 import { RenderRegistry } from './render/syncFromWorld.js';
 import { addBox, addSphere, buildVoxelSurfaceGeometry, mulberry32 } from './render/voxel.js';
@@ -151,6 +154,8 @@ export class Game {
 
         this._loop = new FixedTimestepLoop({ stepHz: 60, maxSubSteps: 5 });
         this._simTimeSec = 0;
+        this.qualityProfile = pickQualityProfile();
+        this.telemetry = new Telemetry();
 
         this.world = new World();
         this.renderRegistry = new RenderRegistry();
@@ -164,6 +169,7 @@ export class Game {
         this.vfx = new VfxSystem(this);
         this.spawner = new SpawnSystem(this);
         this.voxelDestruction = new VoxelDestructionSystem(this);
+        this.enemies = new EnemySystem(this);
 
         /** @type {{ kind: 'base' | 'planet', target: any, sprite: THREE.Sprite, yOffset: number, prefix: string, lastText: string, baseScale: THREE.Vector3 }[]} */
         this.distanceLabelTargets = [];
@@ -213,6 +219,7 @@ export class Game {
         this.stats.hull = this.shipDerived.maxHull;
         this.stats.shield = this.shieldDerived.max;
         this.updateHudStats();
+        this.telemetry.track('session.start', { quality: this.qualityProfile?.id ?? 'unknown', mode: this.mode });
     }
 
     init() {
@@ -236,25 +243,28 @@ export class Game {
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         // Clamp DPR a bit; voxel scenes can get vertex-heavy quickly.
-        this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+        this.renderer.setPixelRatio(Math.min(this.qualityProfile.pixelRatioMax ?? 2, window.devicePixelRatio || 1));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         // Lift mids a bit; helps voxel readability without cranking lights.
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = isTestArea ? 1.34 : 1.28;
+        this.renderer.toneMappingExposure = isTestArea
+            ? (this.qualityProfile?.exposure?.testArea ?? 1.34)
+            : (this.qualityProfile?.exposure?.main ?? 1.28);
 
         // Post-processing
         const renderScene = new RenderPass(this.scene, this.camera);
         
-        const bloomPass = new UnrealBloomPass(
+        const bloomCfg = this.qualityProfile?.bloom ?? {};
+        this.bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            isTestArea ? 1.05 : 0.75, // strength
-            isTestArea ? 0.22 : 0.18, // radius
-            isTestArea ? 0.22 : 0.35  // threshold (mostly glows)
+            isTestArea ? Math.max(0.45, (bloomCfg.strength ?? 0.75) + 0.2) : (bloomCfg.strength ?? 0.75),
+            bloomCfg.radius ?? (isTestArea ? 0.22 : 0.18),
+            bloomCfg.threshold ?? (isTestArea ? 0.22 : 0.35)
         );
-        
+
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(renderScene);
-        this.composer.addPass(bloomPass);
+        this.composer.addPass(this.bloomPass);
 
         // Lighting
         // Minecraft-ish: simple ambient + key + faint rim.
@@ -879,6 +889,7 @@ export class Game {
 
         if (this.stats.hull <= 0 && !this.isPaused) {
             this.showMessage('Ship Destroyed! (Reload to restart)');
+            this.telemetry.track('player.destroyed', { t: nowSec, coin: this.stats.coin ?? 0, gem: this.stats.gem ?? 0 });
             this.isPaused = true;
             if (this.hud) this.hud.setBaseMenuVisible(false);
         }
@@ -937,6 +948,7 @@ export class Game {
         const left = Math.max(0, (this.warpReadyAtSec ?? 0) - now);
         if (left > 0.01 && !this.isPowerupActive(V1.powerups.freeWarp.id)) {
             this.showMessage(`Warp cooling down (${left.toFixed(1)}s)`);
+            this.telemetry.track('warp.blocked', { cooldownLeftSec: Number(left.toFixed(2)) });
             return;
         }
 
@@ -969,6 +981,7 @@ export class Game {
         }
 
         this.showMessage('Warped to Base.');
+        this.telemetry.track('warp.used', { cargoUsed: this.stats.cargoUsed ?? 0 });
         this.openBaseMenu();
         this.updateHudStats();
     }
@@ -1957,6 +1970,7 @@ export class Game {
         this.environment.update(dtSec, now);
         this._tickShipSystems(dtSec, now);
         this.cameraSystem.update(dtSec, now);
+        this.enemies.update(dtSec, now);
         this.combat.update(dtSec, now);
         this.voxelDestruction.update(dtSec, now);
         this.updateBaseMarker(dtSec, now);
@@ -2001,6 +2015,7 @@ export class Game {
         this.scene.remove(obj);
         this.objects.splice(index, 1);
         this.showMessage(`Exploded ${obj.userData.type.toUpperCase()}!`);
+        this.telemetry.track('target.destroyed', { type: obj?.userData?.type ?? 'unknown', size: Number((obj?.scale?.x ?? 1).toFixed(2)) });
     }
 
     /**
@@ -2168,11 +2183,15 @@ export class Game {
         if (this.composer) {
             this.composer.setSize(window.innerWidth, window.innerHeight);
         }
+        if (this.bloomPass?.setSize) this.bloomPass.setSize(window.innerWidth, window.innerHeight);
     }
 
     animate(nowMs) {
         requestAnimationFrame((t) => this.animate(t));
-        this._loop.advance(nowMs, (dtSec) => this.update(dtSec));
+        this._loop.advance(nowMs, (dtSec) => {
+            this.update(dtSec);
+            this.telemetry.frame(nowMs, dtSec);
+        });
         if (this.composer) {
             this.composer.render();
         } else {

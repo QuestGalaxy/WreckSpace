@@ -22,6 +22,7 @@ Current components:
 - `rotationQuat`: entityId -> `{ x,y,z,w }` (player)
 - `lootMotion`: entityId -> `{ rotationSpeed, driftOffset, floatBaseY }`
 - `spin`: entityId -> `{ x,y,z }` (asteroids/planets angular velocity)
+- `bullet`: entityId -> `{ x,y,z, vx,vy,vz, life, ownerEntityId, targetEntityId }`
 
 ### Render Registry (Entity <-> Object3D Binding)
 
@@ -45,6 +46,7 @@ Important files:
 - `navigationSystem.js`: base marker UI driven by world player position + camera projection
 - `vfxSystem.js`: VFX simulation + pooling (engine trails, smoke, sparks, fireballs, hit sparks)
 - `spawnSystem.js`: spawns loot + fragments (with pooling); seeds world state for loot entities
+- `enemySystem.js`: spawns AI enemies, updates movement/fire behavior, and applies enemy projectile damage
 
 ## Frame Update Order
 
@@ -56,17 +58,17 @@ Order matters because systems depend on each other:
 1. `MovementSystem`: update player world transform/quaternion
 2. `EnvironmentSystem`: update + sync world objects (so other systems see fresh world transforms)
 3. `CameraSystem`: follow player
-4. `CombatSystem`: targeting + bullet update/collision
-5. `NavigationSystem`: base marker projection from camera
-6. `VfxSystem`: VFX simulation
-7. `LootSystem`: loot sim + sync + collect/deposit checks
+4. `EnemySystem`: enemy movement + enemy bullet simulation
+5. `CombatSystem`: targeting + player bullet update/collision
+6. `NavigationSystem`: base marker projection from camera
+7. `VfxSystem`: VFX simulation
+8. `LootSystem`: loot sim + sync + collect/deposit checks
 
 The game loop uses a fixed timestep runner for stable simulation behavior.
 
 ## Migration Status / Known Transitional Areas
 
-- Bullets are still simulated as Three.js meshes (position/velocity stored on `bullet.userData`).
-  Collision is world-first, but "bullet truth" is still mesh-first. Next step would be `World.bullets`.
+- Bullet simulation now uses `World.bullet` as source of truth; render meshes are transient shells synchronized each tick.
 - Asteroids/planets are kept in `game.objects` array for some legacy flows (destroy-by-index); the long-term goal
   is to derive iteration from `World.objectMeta` + `RenderRegistry` only.
 - Some `mesh.userData` fields remain render-only (healthbar sprite handles, loot ring/glow references).

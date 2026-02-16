@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "smoke": "node scripts/smoke-check.mjs",
+    "ci:verify": "npm run build && npm run smoke"
   },
   "keywords": [],
   "author": "",

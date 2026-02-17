@@ -163,16 +163,13 @@ export class EnemySystem {
       color: 0xff5f66
     };
 
-    const { group, bounds } = createVoxelShipModel({
+    const { group } = createVoxelShipModel({
       shipData: enemyShipData,
       voxelSize: g.voxel?.size ?? 5,
       textures: g._voxelTextures,
       theme: g.theme,
       voxLit: (opts) => g._voxLit(opts)
     });
-
-    const size = bounds?.size ?? new THREE.Vector3(24, 12, 30);
-    group.userData.hitRadius = Math.max(size.x, size.y, size.z) * 0.45;
 
     group.traverse((n) => {
       if (!n?.isMesh || !n.material?.color) return;
@@ -186,38 +183,13 @@ export class EnemySystem {
     return group;
   }
 
-  _cleanupEnemyState() {
-    for (const id of this._enemyState.keys()) {
-      if (!this.game.world.objectMeta.has(id)) this._enemyState.delete(id);
-    }
-  }
-
   _updateEnemyTarget(entityId, state, nowSec) {
     const g = this.game;
     if ((state.nextRetargetAtSec ?? 0) > nowSec) return;
-    state.nextRetargetAtSec = nowSec + 0.4 + Math.random() * 0.3;
+    state.nextRetargetAtSec = nowSec + 0.65 + Math.random() * 0.4;
 
     const t = g.world.transform.get(entityId);
     if (!t) return;
-
-    const enemyObj = g.renderRegistry.get(entityId);
-    const recentlyHit = ((enemyObj?.userData?.lastHitByPlayerAtSec ?? -999) + 6) > nowSec;
-
-    // Human-like priority: immediate threats first.
-    if (g.playerEntityId) {
-      const pt = g.world.transform.get(g.playerEntityId);
-      if (pt) {
-        const dx = pt.x - t.x;
-        const dy = pt.y - t.y;
-        const dz = pt.z - t.z;
-        const d2 = dx * dx + dy * dy + dz * dz;
-        const closeThreat = d2 < (900 * 900);
-        if (closeThreat || recentlyHit) {
-          state.targetEntityId = g.playerEntityId;
-          return;
-        }
-      }
-    }
 
     let lootTarget = null;
     let lootDist = Infinity;
@@ -236,8 +208,7 @@ export class EnemySystem {
       }
     }
 
-    // Opportunistic loot only if no urgent combat context.
-    if (lootTarget && lootDist < 1200 * 1200) {
+    if (lootTarget && lootDist < 1800 * 1800) {
       state.targetEntityId = lootTarget;
       return;
     }
@@ -259,7 +230,7 @@ export class EnemySystem {
       }
     }
 
-    if (objTarget && objDist < 2200 * 2200) {
+    if (objTarget && objDist < 2600 * 2600) {
       state.targetEntityId = objTarget;
       return;
     }

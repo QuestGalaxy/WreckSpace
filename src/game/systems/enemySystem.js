@@ -35,6 +35,7 @@ export class EnemySystem {
     const pt = g.world.transform.get(g.playerEntityId);
     if (!pt) return;
     this._playerPos.set(pt.x, pt.y, pt.z);
+    this._cleanupEnemyState();
 
     for (const [entityId, meta] of g.world.objectMeta) {
       if (meta?.type !== 'enemy') continue;

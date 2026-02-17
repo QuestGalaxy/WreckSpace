@@ -373,9 +373,10 @@ export class CombatSystem {
         const obj = g.renderRegistry.get(entityId);
         if (!obj) return false;
 
-        // Use geometry radius if it changed due to voxel carving.
-        const geoR = obj.geometry?.boundingSphere?.radius ?? 1;
-        const radius = (t.sx ?? 1) * geoR; // objects are uniformly scaled
+        // Use geometry radius if available; fallback to cached hit radius for Group-based meshes (enemy ships).
+        const geoR = obj.geometry?.boundingSphere?.radius ?? null;
+        const hitR = obj.userData?.hitRadius ?? null;
+        const radius = (geoR != null ? (t.sx ?? 1) * geoR : (hitR ?? Math.max(1, t.sx ?? 1)));
         const r2 = radius * radius;
 
         // Segment-sphere intersection via closest point.
@@ -463,6 +464,10 @@ export class CombatSystem {
             intensity: dmg
           });
           const h = g.world.damage(entityId, dmg);
+          if (obj?.userData && (obj.userData.type === 'enemy')) {
+            obj.userData.lastHitAtSec = g._simTimeSec ?? 0;
+            obj.userData.lastHitByPlayerAtSec = g._simTimeSec ?? 0;
+          }
 
           // Voxel destruction: pop cubes from the impact point and carve the object.
           if (g.voxelDestruction?.onHit) {

@@ -129,9 +129,16 @@ export class SpawnSystem {
     const entityId = obj?.userData?.entityId ?? null;
     const kind = entityId ? (g.world.objectMeta.get(entityId)?.kind ?? null) : null;
     const cfg = kind ? (V1.targets?.[kind] ?? null) : null;
+    const manifest = Array.isArray(obj?.userData?.cargoManifest) ? obj.userData.cargoManifest : null;
+    const nowSec = g._simTimeSec ?? 0;
+
+    if (manifest && manifest.length > 0) {
+      this._spawnManifestDrops(obj, manifest, nowSec);
+      obj.userData.cargoManifest = [];
+    }
+
     if (!cfg) return;
 
-    const nowSec = g._simTimeSec ?? 0;
     const coinUnit = V1.currencyUnits.coinPickup ?? 10;
     const gemUnit = V1.currencyUnits.gemPickup ?? 50;
 
@@ -145,6 +152,24 @@ export class SpawnSystem {
     if (pChance > 0 && Math.random() < pChance) {
       const pid = this._pickPowerupId();
       if (pid) this._spawnPowerup(obj, { powerupId: pid, nowSec });
+    }
+  }
+
+  _spawnManifestDrops(obj, manifest, nowSec) {
+    for (const item of manifest) {
+      const type = item?.type ?? 'coin';
+      const value = Math.max(1, Math.round(item?.value ?? 1));
+      if (type === 'powerup' && item?.powerupId) {
+        this._spawnPowerup(obj, { powerupId: item.powerupId, nowSec });
+        continue;
+      }
+
+      this._spawnCurrencyTotal(obj, {
+        type: type === 'gem' ? 'gem' : 'coin',
+        total: value,
+        unit: value,
+        nowSec
+      });
     }
   }
 

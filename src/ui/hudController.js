@@ -70,6 +70,10 @@ export class HudController {
     this.combatStatusEl = doc.getElementById('combat-status');
     this.hudAlertsEl = doc.getElementById('hud-alerts');
     this.mobileControlsRoot = doc.getElementById('mobile-controls');
+    this.radarRoot = doc.getElementById('hud-radar');
+    this.radarCanvas = doc.getElementById('hud-radar-canvas');
+    this.radarLabelEl = this.radarRoot?.querySelector('.hud-radar-label') ?? null;
+    this._radarCtx = this.radarCanvas?.getContext?.('2d') ?? null;
     // UI tuning: by default, keep the crosshair slightly above exact screen center so it doesn't sit on the ship.
     // Negative Y moves it upward.
     this.crosshairOffsetPx = { x: 0, y: -42 };
@@ -515,5 +519,218 @@ export class HudController {
     // Apply immediately if we're currently centered.
     // (If locked, CombatSystem will keep pushing px positions anyway.)
     this.crosshairResetToCenter();
+  }
+
+  /**
+   * @param {{
+   *  rangeM: number,
+   *  player: {
+   *    x: number, y: number, z: number, headingRad: number,
+   *    qx?: number, qy?: number, qz?: number, qw?: number
+   *  },
+   *  base?: { x: number, y: number, z: number } | null,
+   *  planets?: { x: number, y: number, z: number, kind?: string }[],
+   *  enemies?: { x: number, y: number, z: number }[]
+   * } | null} snapshot
+   */
+  setRadarSnapshot(snapshot) {
+    if (!this.radarRoot || !this.radarCanvas || !this._radarCtx) return;
+    if (!snapshot?.player || !snapshot?.rangeM || snapshot.rangeM <= 0) {
+      this.radarRoot.style.opacity = '0';
+      return;
+    }
+    this.radarRoot.style.opacity = '1';
+
+    const rangeM = Math.max(1, snapshot.rangeM);
+    if (this.radarLabelEl) this.radarLabelEl.textContent = `SCAN ${Math.round(rangeM / 100) / 10}km`;
+
+    const cw = Math.max(1, Math.floor(this.radarCanvas.clientWidth));
+    const ch = Math.max(1, Math.floor(this.radarCanvas.clientHeight));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const bw = Math.floor(cw * dpr);
+    const bh = Math.floor(ch * dpr);
+    if (this.radarCanvas.width !== bw || this.radarCanvas.height !== bh) {
+      this.radarCanvas.width = bw;
+      this.radarCanvas.height = bh;
+    }
+
+    const ctx = this._radarCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, bw, bh);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const cx = cw * 0.5;
+    const cy = ch * 0.5;
+    const radius = Math.max(8, Math.min(cw, ch) * 0.48);
+    const bodyRadius = radius * 0.92;
+    // Hologram sphere body.
+    const fill = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.35, radius * 0.1, cx, cy, radius);
+    fill.addColorStop(0, 'rgba(170,250,255,0.35)');
+    fill.addColorStop(0.4, 'rgba(40,120,150,0.24)');
+    fill.addColorStop(1, 'rgba(5,20,35,0.05)');
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Latitude lines.
+    ctx.strokeStyle = 'rgba(120,230,255,0.16)';
+    ctx.lineWidth = 1;
+    for (let i = -2; i <= 2; i++) {
+      const lat = i / 3;
+      const ry = bodyRadius * lat;
+      const rx = bodyRadius * Math.sqrt(Math.max(0, 1 - lat * lat));
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + ry, rx, rx * 0.22, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Longitudes.
+    ctx.strokeStyle = 'rgba(120,230,255,0.22)';
+    for (let i = -2; i <= 2; i++) {
+      const t = i / 5;
+      const rx = bodyRadius * Math.sqrt(Math.max(0, 1 - t * t)) * 0.34;
+      const x = cx + bodyRadius * t;
+      ctx.beginPath();
+      ctx.ellipse(x, cy, rx, bodyRadius, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Clip drawing to sphere.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRadius, 0, Math.PI * 2);
+    ctx.clip();
+
+    const qx = snapshot.player.qx ?? 0;
+    const qy = snapshot.player.qy ?? 0;
+    const qz = snapshot.player.qz ?? 0;
+    const qw = snapshot.player.qw ?? 1;
+    const qLen = Math.hypot(qx, qy, qz, qw) || 1;
+    const iqx = -qx / qLen;
+    const iqy = -qy / qLen;
+    const iqz = -qz / qLen;
+    const iqw = qw / qLen;
+
+    const rotateByInverseQuat = (vx, vy, vz) => {
+      // v' = q^-1 * v * q
+      const tx = 2 * (iqy * vz - iqz * vy);
+      const ty = 2 * (iqz * vx - iqx * vz);
+      const tz = 2 * (iqx * vy - iqy * vx);
+      return {
+        x: vx + iqw * tx + (iqy * tz - iqz * ty),
+        y: vy + iqw * ty + (iqz * tx - iqx * tz),
+        z: vz + iqw * tz + (iqx * ty - iqy * tx)
+      };
+    };
+
+    /** @type {{ sx:number, sy:number, depth:number, size:number, color:string, kind:'dot'|'diamond' }[]} */
+    const blips = [];
+    const pushTrack = (x, y, z, color, size, kind = 'dot') => {
+      const dx = x - snapshot.player.x;
+      const dy = y - snapshot.player.y;
+      const dz = z - snapshot.player.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > rangeM) return;
+
+      const local = rotateByInverseQuat(dx, dy, dz);
+      const invRange = 1 / rangeM;
+      let nx = local.x * invRange;
+      let ny = local.y * invRange;
+      let nz = local.z * invRange;
+      const nLen = Math.hypot(nx, ny, nz);
+      if (nLen > 1e-6) {
+        const cl = Math.min(1, nLen);
+        nx = (nx / nLen) * cl;
+        ny = (ny / nLen) * cl;
+        nz = (nz / nLen) * cl;
+      }
+
+      blips.push({
+        sx: cx + nx * bodyRadius,
+        sy: cy - ny * bodyRadius,
+        depth: nz,
+        size,
+        color,
+        kind
+      });
+    };
+
+    if (snapshot.base) {
+      pushTrack(snapshot.base.x, snapshot.base.y, snapshot.base.z, 'rgba(120,255,250,0.98)', 4.5, 'diamond');
+    }
+    for (const p of snapshot.planets ?? []) {
+      const size = p.kind === 'planet_large' ? 3.4 : p.kind === 'planet_medium' ? 2.8 : 2.3;
+      pushTrack(p.x, p.y, p.z, 'rgba(100,180,255,0.92)', size, 'dot');
+    }
+    for (const e of snapshot.enemies ?? []) {
+      pushTrack(e.x, e.y, e.z, 'rgba(255,110,110,0.98)', 2.2, 'dot');
+    }
+
+    // Draw far hemisphere first, near hemisphere last.
+    blips.sort((a, b) => a.depth - b.depth);
+    for (const b of blips) {
+      const vis = Math.max(0.18, 0.30 + ((b.depth + 1) * 0.5) * 0.9);
+      const glow = Math.max(0.08, b.depth > 0 ? 0.42 : 0.16);
+      const isBackHemisphere = b.depth < 0;
+      ctx.globalAlpha = vis;
+      if (!isBackHemisphere) {
+        if (b.kind === 'diamond') {
+          ctx.fillStyle = b.color;
+          ctx.save();
+          ctx.translate(b.sx, b.sy);
+          ctx.rotate(Math.PI / 4);
+          ctx.fillRect(-b.size, -b.size, b.size * 2, b.size * 2);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = b.color;
+          ctx.beginPath();
+          ctx.arc(b.sx, b.sy, b.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = isBackHemisphere ? Math.max(0.18, glow * 1.45) : glow;
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.arc(b.sx, b.sy, b.size * (isBackHemisphere ? 2.8 : 2.1), 0, Math.PI * 2);
+      ctx.fill();
+      if (isBackHemisphere) {
+        ctx.globalAlpha = 0.28;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(b.sx, b.sy, b.size * 1.55, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Subtle scan sweep.
+    const sweep = ((Date.now() * 0.00035) % 1) * Math.PI * 2;
+    ctx.strokeStyle = 'rgba(160,255,255,0.28)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRadius * 0.92, sweep - 0.20, sweep + 0.20);
+    ctx.stroke();
+    ctx.restore();
+
+    // Player indicator at center (live heading).
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(snapshot.player.headingRad ?? 0);
+    ctx.fillStyle = 'rgba(220,255,255,0.96)';
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(4.8, 6);
+    ctx.lineTo(0, 3.4);
+    ctx.lineTo(-4.8, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(170,250,255,0.52)';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRadius, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }

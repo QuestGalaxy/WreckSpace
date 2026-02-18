@@ -145,6 +145,7 @@ export class Game {
         this.touchMoveAxis = { x: 0, y: 0, active: false };
         this.mobileControls = null;
         this.mobileControlsEnabled = false;
+        this._hudRadarHeadingRad = 0;
 
         if (this.hud) {
             this.hud.setStats(this._getHudStats());
@@ -1996,6 +1997,7 @@ export class Game {
         if (this.isPaused) {
             // Keep death/base VFX animating while gameplay is paused.
             this.vfx.update(dtSec, now);
+            this.updateHudRadar();
             this.updateHudStats();
             return;
         }
@@ -2025,6 +2027,7 @@ export class Game {
         this.vfx.update(dtSec, now);
 
         this.loot.update(dtSec, now);
+        this.updateHudRadar();
         this.updateHudStats();
     }
 
@@ -2238,6 +2241,63 @@ export class Game {
     updateHudStats() {
         if (!this.hud) return;
         this.hud.setStats(this._getHudStats());
+    }
+
+    updateHudRadar() {
+        if (!this.hud?.setRadarSnapshot || !this.playerEntityId) return;
+        const playerT = this.world.transform.get(this.playerEntityId);
+        if (!playerT) return;
+
+        const ws = this.worldScale ?? 1;
+        const rangeM = 2200 * ws;
+
+        const headingVec = new THREE.Vector3(0, 0, 1);
+        const rq = this.world.rotationQuat.get(this.playerEntityId);
+        if (rq) {
+            const q = new THREE.Quaternion(rq.x, rq.y, rq.z, rq.w);
+            headingVec.applyQuaternion(q);
+        } else if (this.player?.quaternion) {
+            headingVec.applyQuaternion(this.player.quaternion);
+        }
+        const headingLenSq = headingVec.x * headingVec.x + headingVec.z * headingVec.z;
+        let headingRad = this._hudRadarHeadingRad ?? 0;
+        if (headingLenSq > 1e-6) {
+            // Invert sign so radar rotation direction matches in-game turn feel.
+            headingRad = -Math.atan2(headingVec.x, headingVec.z);
+            this._hudRadarHeadingRad = headingRad;
+        }
+
+        /** @type {{x:number,y:number,z:number,kind?:string}[]} */
+        const planets = [];
+        /** @type {{x:number,y:number,z:number}[]} */
+        const enemies = [];
+        for (const [entityId, meta] of this.world.objectMeta) {
+            const t = this.world.transform.get(entityId);
+            if (!t) continue;
+            if (meta?.type === 'planet') planets.push({ x: t.x, y: t.y, z: t.z, kind: meta.kind });
+            else if (meta?.type === 'enemy') enemies.push({ x: t.x, y: t.y, z: t.z });
+        }
+
+        const base = this.baseStation
+            ? { x: this.baseStation.position.x, y: this.baseStation.position.y, z: this.baseStation.position.z }
+            : null;
+
+        this.hud.setRadarSnapshot({
+            rangeM,
+            player: {
+                x: playerT.x,
+                y: playerT.y,
+                z: playerT.z,
+                headingRad,
+                qx: rq?.x ?? this.player?.quaternion?.x ?? 0,
+                qy: rq?.y ?? this.player?.quaternion?.y ?? 0,
+                qz: rq?.z ?? this.player?.quaternion?.z ?? 0,
+                qw: rq?.w ?? this.player?.quaternion?.w ?? 1
+            },
+            base,
+            planets,
+            enemies
+        });
     }
 
     onWindowResize() {

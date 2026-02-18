@@ -25,7 +25,6 @@ export class EnemySystem {
       enemy_striker: V1.ships.balanced,
       enemy_tank: V1.ships.miner
     };
-    this._enemyMeshTemplates = new Map();
   }
 
   update(dtSec, nowSec) {
@@ -153,96 +152,44 @@ export class EnemySystem {
 
   _createEnemyMesh(kind, shipData) {
     const g = this.game;
-    const templateKey = kind;
-    const cached = this._enemyMeshTemplates.get(templateKey);
-    if (cached) return this._cloneEnemyTemplate(cached);
-
-    let template = null;
     if (!g._voxelTextures || !g._voxLit) {
       const ws = g.worldScale ?? 1;
       const geo = new THREE.BoxGeometry(12 * ws, 6 * ws, 18 * ws);
-      template = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff6666, emissive: 0x220808, roughness: 0.8, metalness: 0.2, flatShading: true }));
-      template.userData.hitRadius = 10 * ws;
-    } else {
-      const enemyShipData = {
-        ...(shipData ?? V1.ships.balanced),
-        color: 0xff5f66
-      };
-
-      const { group, bounds } = createVoxelShipModel({
-        shipData: enemyShipData,
-        voxelSize: g.voxel?.size ?? 5,
-        textures: g._voxelTextures,
-        theme: g.theme,
-        voxLit: (opts) => g._voxLit(opts)
-      });
-
-      const size = bounds?.size ?? new THREE.Vector3(24, 12, 30);
-      group.userData.hitRadius = Math.max(size.x, size.y, size.z) * 0.45;
-
-      group.traverse((n) => {
-        if (!n?.isMesh || !n.material?.color) return;
-        n.material = n.material.clone();
-        if (n.material?.emissive) {
-          n.material.emissive = n.material.emissive.clone();
-          n.material.emissive.offsetHSL(0, 0, 0.02);
-        }
-      });
-      template = group;
+      return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff6666, emissive: 0x220808, roughness: 0.8, metalness: 0.2, flatShading: true }));
     }
 
-    this._enemyMeshTemplates.set(templateKey, template);
-    return this._cloneEnemyTemplate(template);
-  }
-
-  _cloneEnemyTemplate(template) {
-    const clone = template.clone(true);
-    clone.userData = {
-      ...(template.userData ?? {}),
-      type: 'enemy',
-      enemyKind: null,
-      cargoManifest: []
+    const enemyShipData = {
+      ...(shipData ?? V1.ships.balanced),
+      color: 0xff5f66
     };
-    clone.traverse((n) => {
-      if (!n?.isMesh || !n.material) return;
-      n.material = n.material.clone();
-      if (n.material?.emissive?.clone) n.material.emissive = n.material.emissive.clone();
-    });
-    return clone;
-  }
 
-  _cleanupEnemyState() {
-    for (const id of this._enemyState.keys()) {
-      if (!this.game.world.objectMeta.has(id)) this._enemyState.delete(id);
-    }
+    const { group } = createVoxelShipModel({
+      shipData: enemyShipData,
+      voxelSize: g.voxel?.size ?? 5,
+      textures: g._voxelTextures,
+      theme: g.theme,
+      voxLit: (opts) => g._voxLit(opts)
+    });
+
+    group.traverse((n) => {
+      if (!n?.isMesh || !n.material?.color) return;
+      n.material = n.material.clone();
+      if (n.material?.emissive) {
+        n.material.emissive = n.material.emissive.clone();
+        n.material.emissive.offsetHSL(0, 0, 0.02);
+      }
+    });
+
+    return group;
   }
 
   _updateEnemyTarget(entityId, state, nowSec) {
     const g = this.game;
     if ((state.nextRetargetAtSec ?? 0) > nowSec) return;
-    state.nextRetargetAtSec = nowSec + 0.4 + Math.random() * 0.3;
+    state.nextRetargetAtSec = nowSec + 0.65 + Math.random() * 0.4;
 
     const t = g.world.transform.get(entityId);
     if (!t) return;
-
-    const enemyObj = g.renderRegistry.get(entityId);
-    const recentlyHit = ((enemyObj?.userData?.lastHitByPlayerAtSec ?? -999) + 6) > nowSec;
-
-    // Human-like priority: immediate threats first.
-    if (g.playerEntityId) {
-      const pt = g.world.transform.get(g.playerEntityId);
-      if (pt) {
-        const dx = pt.x - t.x;
-        const dy = pt.y - t.y;
-        const dz = pt.z - t.z;
-        const d2 = dx * dx + dy * dy + dz * dz;
-        const closeThreat = d2 < (900 * 900);
-        if (closeThreat || recentlyHit) {
-          state.targetEntityId = g.playerEntityId;
-          return;
-        }
-      }
-    }
 
     let lootTarget = null;
     let lootDist = Infinity;
@@ -261,8 +208,7 @@ export class EnemySystem {
       }
     }
 
-    // Opportunistic loot only if no urgent combat context.
-    if (lootTarget && lootDist < 1200 * 1200) {
+    if (lootTarget && lootDist < 1800 * 1800) {
       state.targetEntityId = lootTarget;
       return;
     }
@@ -284,7 +230,7 @@ export class EnemySystem {
       }
     }
 
-    if (objTarget && objDist < 2200 * 2200) {
+    if (objTarget && objDist < 2600 * 2600) {
       state.targetEntityId = objTarget;
       return;
     }

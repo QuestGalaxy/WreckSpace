@@ -72,7 +72,7 @@ function _sampleFromArray(arr, count, rng = Math.random) {
 export class Game {
     /**
      * @param {any} shipData
-     * @param {{ hud?: import('./ui/hudController.js').HudController, mode?: 'main'|'testArea', invertPitch?: boolean }} [deps]
+     * @param {{ hud?: import('./ui/hudController.js').HudController, mode?: 'main'|'testArea', invertPitch?: boolean, enemyAiPreset?: 'aggressive'|'balanced'|'cowardly' }} [deps]
      */
     constructor(shipData, deps = {}) {
         this.shipData = shipData;
@@ -84,6 +84,9 @@ export class Game {
         // - 'cinematic' matches the tuned Test Area feel (louder hit audio, more sparks/glow, more chunks).
         // - 'subtle' is lighter for performance/clarity in crowded scenes.
         this.hitFeedbackProfile = deps.hitFeedbackProfile ?? 'cinematic';
+        const presetId = typeof deps.enemyAiPreset === 'string' ? deps.enemyAiPreset : 'balanced';
+        this.enemyAiPreset = V1.enemyAiPresets?.[presetId] ? presetId : 'balanced';
+        this.enemyAiPresetCfg = V1.enemyAiPresets?.[this.enemyAiPreset] ?? V1.enemyAiPresets.balanced;
         this.canvas = document.getElementById('game-canvas');
 
         // Planet "light beam" (visual only). Stored separately so we can animate without coupling to gameplay.

@@ -6,6 +6,8 @@ export class EnemySystem {
   /** @param {import('../../game.js').Game} game */
   constructor(game) {
     this.game = game;
+    this._preset = game.enemyAiPresetCfg ?? V1.enemyAiPresets.balanced;
+    this._characterPresetIds = ['aggressive', 'balanced', 'cowardly'];
     /** @type {THREE.Mesh[]} */
     this.enemyBullets = [];
     this._spawned = false;
@@ -71,10 +73,10 @@ export class EnemySystem {
         : 1;
       const recentlyHit = ((obj.userData?.lastHitByPlayerAtSec ?? -999) + 2.6) > nowSec;
       const baseSpeed = enemyCfg.moveSpeed ?? 6;
-      const speed = baseSpeed * (shipCfg.speed ?? 1);
+      const speed = baseSpeed * (shipCfg.speed ?? 1) * (state.speedMul ?? (this._preset.speedMul ?? 1));
       const stopDist = enemyCfg.stopDistance ?? 280;
       const shotRange = enemyCfg.shotRange ?? 900;
-      const strafe = enemyCfg.strafe ?? 0;
+      const strafe = (enemyCfg.strafe ?? 0) * (state.strafeMul ?? (this._preset.strafeMul ?? 1));
       const targetIsPlayer = targetId === g.playerEntityId;
       const behavior = this._updateBehaviorState(state, {
         nowSec,
@@ -175,9 +177,10 @@ export class EnemySystem {
       vel.z += (targetVz - vel.z) * blend;
       g.world.velocity.set(entityId, vel);
 
-      t.x += vel.x * dtSec;
-      t.y += vel.y * dtSec;
-      t.z += vel.z * dtSec;
+      const simStep = dtSec * 60;
+      t.x += vel.x * simStep;
+      t.y += vel.y * simStep;
+      t.z += vel.z * simStep;
 
       obj.position.set(t.x, t.y, t.z);
       obj.lookAt(this._targetPos);
@@ -231,11 +234,38 @@ export class EnemySystem {
       g.objects.push(mesh);
       g.createHealthBar(mesh);
 
+      const characterId = this._characterPresetIds[Math.floor(Math.random() * this._characterPresetIds.length)] ?? 'balanced';
+      const characterCfg = V1.enemyAiPresets?.[characterId] ?? V1.enemyAiPresets.balanced;
+      const mul = (key) => (this._preset?.[key] ?? 1) * (characterCfg?.[key] ?? 1);
+      const combatBias = THREE.MathUtils.clamp(((this._preset?.combatBias ?? 0.55) + (characterCfg?.combatBias ?? 0.55)) * 0.5, 0.08, 0.92);
+      mesh.userData.aiCharacterId = characterId;
+      mesh.userData.aiCharacter = characterCfg?.character ?? characterId;
+
       this._enemyState.set(id, {
         shipData,
+        characterId,
+        character: characterCfg?.character ?? characterId,
+        speedMul: mul('speedMul'),
+        strafeMul: mul('strafeMul'),
+        missMul: mul('missMul'),
+        fleeThresholdMul: mul('fleeThresholdMul'),
+        modeDurationMul: mul('modeDurationMul'),
+        commitDurationMul: mul('commitDurationMul'),
+        combatBias,
+        teamId: Math.random() < 0.5 ? 0 : 1,
+        aggression: (0.7 + Math.random() * 0.8) * mul('aggressionMul'),
+        caution: (0.65 + Math.random() * 0.8) * mul('cautionMul'),
+        unpredictability: (0.75 + Math.random() * 0.6) * mul('unpredictabilityMul'),
+        farmBias: 0.45 + Math.random() * 0.4,
         cargoUsed: 0,
         cargoMax: shipData.cargo ?? 30,
         targetEntityId: g.playerEntityId,
+        targetKind: 'player',
+        targetPowerRatio: 1,
+        intent: 'fight',
+        commitUntilSec: 0,
+        objectiveMode: Math.random() < 0.5 ? 'combat' : 'farm',
+        modeUntilSec: 0,
         nextRetargetAtSec: 0,
         behavior: 'chase',
         strafeDir: Math.random() < 0.5 ? -1 : 1,
@@ -317,16 +347,27 @@ export class EnemySystem {
   _updateEnemyTarget(entityId, state, nowSec) {
     const g = this.game;
     if ((state.nextRetargetAtSec ?? 0) > nowSec) return;
-    state.nextRetargetAtSec = nowSec + 0.4 + Math.random() * 0.3;
+    state.nextRetargetAtSec = nowSec + 0.35 + Math.random() * 0.55;
 
     const t = g.world.transform.get(entityId);
     if (!t) return;
+    const selfMeta = g.world.objectMeta.get(entityId);
+    if (!selfMeta) return;
 
     const enemyObj = g.renderRegistry.get(entityId);
     const recentlyHit = ((enemyObj?.userData?.lastHitByPlayerAtSec ?? -999) + 6) > nowSec;
     const hp = g.world.getHealth(entityId);
     const hpRatio = hp && hp.maxHp > 0 ? hp.hp / hp.maxHp : 1;
-    // Combat-first: stay focused on the player.
+    const selfPower = this._estimateEnemyPower(entityId, selfMeta, hpRatio, state);
+    if ((state.modeUntilSec ?? 0) <= nowSec) {
+      const combatBias = state.combatBias ?? (this._preset.combatBias ?? 0.55);
+      const preferFarm = Math.random() >= combatBias || Math.random() < (state.farmBias ?? 0.5);
+      state.objectiveMode = preferFarm ? 'farm' : 'combat';
+      const modeDurMul = state.modeDurationMul ?? 1;
+      state.modeUntilSec = nowSec + (3.5 + Math.random() * 5.5) * modeDurMul;
+    }
+    let best = null;
+
     if (g.playerEntityId) {
       const pt = g.world.transform.get(g.playerEntityId);
       if (pt) {
@@ -334,14 +375,50 @@ export class EnemySystem {
         const dy = pt.y - t.y;
         const dz = pt.z - t.z;
         const d2 = dx * dx + dy * dy + dz * dz;
-        const closeThreat = d2 < (900 * 900);
-        if (closeThreat || recentlyHit || hpRatio < 0.46) {
-          state.targetEntityId = g.playerEntityId;
-          return;
-        }
+        const targetPower = this._estimatePlayerPower();
+        const ratio = selfPower / Math.max(0.1, targetPower);
+        const distNorm = Math.min(1, Math.sqrt(d2) / 1800);
+        const bravery = state.aggression - state.caution * (ratio < 1 ? 0.55 : 0.15);
+        const modeBoost = state.objectiveMode === 'combat' ? 0.35 : -0.12;
+        const score = 1.0 + modeBoost + bravery * 0.35 - distNorm * 0.55 + (recentlyHit ? 0.3 : 0) + (Math.random() - 0.5) * 0.18 * state.unpredictability;
+        best = {
+          targetId: g.playerEntityId,
+          targetKind: 'player',
+          score,
+          ratio,
+          dist2: d2
+        };
       }
-      state.targetEntityId = g.playerEntityId;
-      return;
+    }
+
+    for (const [otherId, meta] of g.world.objectMeta) {
+      if (otherId === entityId || meta?.type !== 'enemy') continue;
+      const otherState = this._enemyState.get(otherId);
+      if (!otherState) continue;
+      if ((otherState.teamId ?? 0) === (state.teamId ?? 0)) continue;
+      const ot = g.world.transform.get(otherId);
+      if (!ot) continue;
+      const dx = ot.x - t.x;
+      const dy = ot.y - t.y;
+      const dz = ot.z - t.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > 2400 * 2400) continue;
+      const oh = g.world.getHealth(otherId);
+      const oHpRatio = oh && oh.maxHp > 0 ? oh.hp / oh.maxHp : 1;
+      const targetPower = this._estimateEnemyPower(otherId, meta, oHpRatio, otherState);
+      const ratio = selfPower / Math.max(0.1, targetPower);
+      const distNorm = Math.min(1, Math.sqrt(d2) / 1600);
+      const modeBoost = state.objectiveMode === 'combat' ? 0.2 : -0.08;
+      const score = 0.9 + modeBoost + state.aggression * 0.28 - state.caution * (ratio < 1 ? 0.32 : 0.1) - distNorm * 0.52 + (Math.random() - 0.5) * 0.24 * state.unpredictability;
+      if (!best || score > best.score) {
+        best = {
+          targetId: otherId,
+          targetKind: 'enemy',
+          score,
+          ratio,
+          dist2: d2
+        };
+      }
     }
 
     let objTarget = null;
@@ -361,12 +438,37 @@ export class EnemySystem {
       }
     }
 
-    if (objTarget && objDist < 2200 * 2200) {
+    const currentValid = state.targetEntityId && g.world.objectMeta.has(state.targetEntityId);
+    if (currentValid && (state.commitUntilSec ?? 0) > nowSec) return;
+
+    if (best && best.targetId != null) {
+      state.targetEntityId = best.targetId;
+      state.targetKind = best.targetKind;
+      state.targetPowerRatio = best.ratio;
+      const fleeScale = state.fleeThresholdMul ?? (this._preset.fleeThresholdMul ?? 1);
+      const fleeLikely = best.ratio < ((0.92 - 0.22 * state.aggression) * fleeScale) || (hpRatio < 0.28 * fleeScale);
+      state.intent = fleeLikely ? 'flee' : 'fight';
+      const baseCommit = fleeLikely ? 0.45 : 0.85;
+      const commitMul = state.commitDurationMul ?? 1;
+      state.commitUntilSec = nowSec + (baseCommit + Math.random() * 0.9) * commitMul;
+      return;
+    }
+
+    if (objTarget && objDist < 2800 * 2800) {
       state.targetEntityId = objTarget;
+      state.targetKind = 'object';
+      state.targetPowerRatio = 1;
+      state.intent = 'farm';
+      const commitMul = state.commitDurationMul ?? 1;
+      state.commitUntilSec = nowSec + (0.6 + Math.random() * 0.8) * commitMul;
       return;
     }
 
     state.targetEntityId = null;
+    state.targetKind = null;
+    state.intent = 'wander';
+    state.targetPowerRatio = 1;
+    state.commitUntilSec = nowSec + 0.25;
   }
 
   _updateBehaviorState(state, {
@@ -384,11 +486,19 @@ export class EnemySystem {
       state.nextStrafeFlipAtSec = nowSec + 0.8 + Math.random() * 1.4;
     }
 
+    const intent = state.intent ?? 'fight';
+    const ratio = state.targetPowerRatio ?? 1;
+
     let behavior = 'strafe';
-    if (!targetIsPlayer) {
-      behavior = dist > stopDist * 1.15 ? 'chase' : 'strafe';
-    } else if (hpRatio < 0.30) {
+    const fleeScale = state.fleeThresholdMul ?? (this._preset.fleeThresholdMul ?? 1);
+    if (intent === 'flee' || hpRatio < (0.28 * fleeScale)) {
       behavior = 'flee';
+    } else if (!targetIsPlayer && state.targetKind === 'object') {
+      behavior = dist > stopDist * 1.15 ? 'chase' : 'strafe';
+    } else if (ratio > (1.08 - state.aggression * 0.12) && dist < stopDist * 1.6) {
+      behavior = dist < stopDist * 0.9 ? 'pressure' : 'chase';
+    } else if (ratio < (0.98 + state.caution * 0.12)) {
+      behavior = dist < stopDist * 1.25 ? 'kite' : 'evade';
     } else if (recentlyHit && hpRatio < 0.62) {
       behavior = 'evade';
     } else if (dist > shotRange * 1.08) {
@@ -402,6 +512,27 @@ export class EnemySystem {
     }
     state.behavior = behavior;
     return behavior;
+  }
+
+  _estimateEnemyPower(entityId, meta, hpRatio, state) {
+    const cfg = V1.targets?.[meta?.kind]?.enemy ?? {};
+    const dmg = cfg.shotDamage ?? 6;
+    const cd = Math.max(0.2, cfg.shotCooldownSec ?? 2);
+    const pressure = dmg / cd;
+    const mobility = (cfg.moveSpeed ?? 6) + (cfg.strafe ?? 0) * 0.8;
+    const aggression = 0.9 + (state?.aggression ?? 1) * 0.25;
+    return pressure * 0.65 + mobility * 0.42 + (hpRatio * 18) * aggression;
+  }
+
+  _estimatePlayerPower() {
+    const g = this.game;
+    const maxHull = Math.max(1, g.shipDerived?.maxHull ?? 100);
+    const hullRatio = Math.max(0, Math.min(1, (g.stats?.hull ?? maxHull) / maxHull));
+    const dmg = g.weaponDerived?.damage ?? 10;
+    const fireRateMs = Math.max(120, g.weaponDerived?.fireRateMs ?? 600);
+    const dps = dmg * (1000 / fireRateMs);
+    const speed = (g.shipData?.speed ?? 1) * 8;
+    return dps * 0.8 + speed * 0.5 + hullRatio * 24;
   }
 
   _collectNearbyLoot(entityId, obj, state) {
@@ -448,7 +579,9 @@ export class EnemySystem {
     this._to.set(tt.x, tt.y, tt.z);
     const dir = this._to.sub(this._from).normalize();
 
-    const missScale = Math.max(0.006, 0.045 * (distToTarget / Math.max(1, shotRange)));
+    const missScaleBase = Math.max(0.006, 0.045 * (distToTarget / Math.max(1, shotRange)));
+    const ownerState = this._enemyState.get(ownerEntityId);
+    const missScale = missScaleBase * (ownerState?.missMul ?? (this._preset.missMul ?? 1));
     dir.x += (Math.random() - 0.5) * missScale;
     dir.y += (Math.random() - 0.5) * missScale;
     dir.z += (Math.random() - 0.5) * missScale;
@@ -527,6 +660,34 @@ export class EnemySystem {
         g.vfx.createHitEffect(new THREE.Vector3(pt.x, pt.y, pt.z));
         return true;
       }
+    }
+
+    const ownerMeta = bullet.ownerEntityId ? g.world.objectMeta.get(bullet.ownerEntityId) : null;
+    const ownerState = bullet.ownerEntityId ? this._enemyState.get(bullet.ownerEntityId) : null;
+    for (const [entityId, meta] of g.world.objectMeta) {
+      if (meta?.type !== 'enemy') continue;
+      if (entityId === bullet.ownerEntityId) continue;
+      const targetState = this._enemyState.get(entityId);
+      if (ownerState && targetState && ownerState.teamId === targetState.teamId) continue;
+      const t = g.world.transform.get(entityId);
+      if (!t) continue;
+      const obj = g.renderRegistry.get(entityId);
+      const hitR = obj?.userData?.hitRadius ?? (12 * (g.worldScale ?? 1));
+      const r = Math.max(6 * (g.worldScale ?? 1), (t.sx ?? 1) * 0.5, hitR);
+      const dx = bullet.x - t.x;
+      const dy = bullet.y - t.y;
+      const dz = bullet.z - t.z;
+      if (dx * dx + dy * dy + dz * dz > r * r) continue;
+
+      const dmg = V1.targets?.[ownerMeta?.kind]?.enemy?.shotDamage ?? 6;
+      const h = g.world.damage(entityId, dmg);
+      g.vfx.createHitEffect(new THREE.Vector3(bullet.x, bullet.y, bullet.z));
+      if (obj?.userData?.healthBar) {
+        obj.userData.healthBar.sprite.visible = true;
+        g.updateHealthBar(obj);
+      }
+      if (h && h.hp <= 0) g.destroyObjectEntity(entityId);
+      return true;
     }
 
     for (const [entityId, meta] of g.world.objectMeta) {

@@ -120,6 +120,51 @@ export const V1 = Object.freeze({
     freeWarp: Object.freeze({ id: 'freeWarp', name: 'Free Warp', durationSec: 0 })
   }),
 
+  enemyAiPresets: Object.freeze({
+    aggressive: Object.freeze({
+      id: 'aggressive',
+      character: 'Berserker hunter',
+      speedMul: 1.2,
+      strafeMul: 1.25,
+      aggressionMul: 1.35,
+      cautionMul: 0.8,
+      unpredictabilityMul: 1.15,
+      combatBias: 0.78,
+      missMul: 0.75,
+      fleeThresholdMul: 0.82,
+      modeDurationMul: 1.2,
+      commitDurationMul: 1.25
+    }),
+    balanced: Object.freeze({
+      id: 'balanced',
+      character: 'Tactical duelist',
+      speedMul: 1.0,
+      strafeMul: 1.0,
+      aggressionMul: 1.0,
+      cautionMul: 1.0,
+      unpredictabilityMul: 1.0,
+      combatBias: 0.55,
+      missMul: 1.0,
+      fleeThresholdMul: 1.0,
+      modeDurationMul: 1.0,
+      commitDurationMul: 1.0
+    }),
+    cowardly: Object.freeze({
+      id: 'cowardly',
+      character: 'Skittish scavenger',
+      speedMul: 1.05,
+      strafeMul: 1.3,
+      aggressionMul: 0.75,
+      cautionMul: 1.35,
+      unpredictabilityMul: 1.1,
+      combatBias: 0.32,
+      missMul: 1.2,
+      fleeThresholdMul: 1.25,
+      modeDurationMul: 0.9,
+      commitDurationMul: 0.8
+    })
+  }),
+
   targets: Object.freeze({
     // Planets only (for now): 3 sizes.
     // HP roughly maps to "shots to destroy" given baseDamage=10:
@@ -201,9 +246,9 @@ export const V1 = Object.freeze({
       large: 4
     }),
     enemies: Object.freeze({
-      scout: 8,
-      striker: 5,
-      tank: 3
+      scout: 16,
+      striker: 10,
+      tank: 6
     })
   })
 });

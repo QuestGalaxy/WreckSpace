@@ -284,12 +284,15 @@ function startGame(selectedShip) {
     const mode =
         document.querySelector('input[name="world-mode"]:checked')?.value ??
         'main';
+    const enemyAiPresetRaw = new URL(window.location.href).searchParams.get('enemyAi') ?? 'balanced';
+    const enemyAiPreset = /^(aggressive|balanced|cowardly)$/.test(enemyAiPresetRaw) ? enemyAiPresetRaw : 'balanced';
     
     // Initialize the 3D Game
     game = new Game(selectedShip, {
         hud: hudController,
         mode,
-        invertPitch: !!appSettings.invertPitch
+        invertPitch: !!appSettings.invertPitch,
+        enemyAiPreset
     });
     game.init();
     hudController.setHintPreset(mode === 'testArea' ? 'tutorial' : 'desktop');

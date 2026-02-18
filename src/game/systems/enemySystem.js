@@ -15,6 +15,7 @@ export class EnemySystem {
     this._toTarget = new THREE.Vector3();
     this._playerPos = new THREE.Vector3();
     this._moveDir = new THREE.Vector3();
+    this._strafeVec = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
     this._targetPos = new THREE.Vector3();
     this._from = new THREE.Vector3();
@@ -25,6 +26,7 @@ export class EnemySystem {
       enemy_striker: V1.ships.balanced,
       enemy_tank: V1.ships.miner
     };
+    this._enemyMeshTemplates = new Map();
   }
 
   update(dtSec, nowSec) {
@@ -62,25 +64,115 @@ export class EnemySystem {
       const kindCfg = V1.targets?.[meta.kind] ?? {};
       const enemyCfg = kindCfg.enemy ?? {};
       const shipCfg = state.shipData ?? V1.ships.balanced;
+      const h = g.world.getHealth(entityId);
+      const hpRatio = h && h.maxHp > 0 ? h.hp / h.maxHp : 1;
+      const playerHullRatio = (g.shipDerived?.maxHull ?? 0) > 0
+        ? (g.stats.hull ?? 0) / (g.shipDerived.maxHull ?? 1)
+        : 1;
+      const recentlyHit = ((obj.userData?.lastHitByPlayerAtSec ?? -999) + 2.6) > nowSec;
       const baseSpeed = enemyCfg.moveSpeed ?? 6;
       const speed = baseSpeed * (shipCfg.speed ?? 1);
       const stopDist = enemyCfg.stopDistance ?? 280;
+      const shotRange = enemyCfg.shotRange ?? 900;
       const strafe = enemyCfg.strafe ?? 0;
+      const targetIsPlayer = targetId === g.playerEntityId;
+      const behavior = this._updateBehaviorState(state, {
+        nowSec,
+        dist,
+        stopDist,
+        shotRange,
+        hpRatio,
+        playerHullRatio,
+        recentlyHit,
+        targetIsPlayer
+      });
 
-      const orbit = this._moveDir.set(-this._toTarget.z, 0, this._toTarget.x)
-        .multiplyScalar(strafe * (0.6 + 0.4 * Math.sin(nowSec * 1.3 + entityId * 0.31)));
+      let desiredRange = stopDist;
+      let forwardBias = 0.25;
+      let strafeMul = 1.0;
+      let shootCadenceMul = 1.0;
+      switch (behavior) {
+        case 'chase':
+          forwardBias = 1.15;
+          strafeMul = 1.0;
+          desiredRange = stopDist * 1.1;
+          break;
+        case 'pressure':
+          forwardBias = 1.0;
+          strafeMul = 1.25;
+          desiredRange = stopDist * 0.8;
+          shootCadenceMul = 0.82;
+          break;
+        case 'kite':
+          forwardBias = -0.55;
+          strafeMul = 1.8;
+          desiredRange = stopDist * 1.2;
+          shootCadenceMul = 1.18;
+          break;
+        case 'flee':
+          forwardBias = -1.35;
+          strafeMul = 1.9;
+          desiredRange = stopDist * 1.6;
+          shootCadenceMul = 1.55;
+          break;
+        case 'evade':
+          forwardBias = -0.7;
+          strafeMul = 2.2;
+          desiredRange = stopDist * 1.05;
+          shootCadenceMul = 1.28;
+          break;
+        default:
+          forwardBias = 0.55;
+          strafeMul = 1.8;
+          desiredRange = stopDist;
+          break;
+      }
 
-      const toward = Math.max(0, dist - stopDist);
-      const approach = Math.min(1, toward / Math.max(1, stopDist));
-      const desiredVx = this._toTarget.x * speed * approach + orbit.x;
-      const desiredVy = this._toTarget.y * speed * 0.35 + orbit.y;
-      const desiredVz = this._toTarget.z * speed * approach + orbit.z;
+      const toward = Math.max(0, dist - desiredRange);
+      const approach = Math.min(1, toward / Math.max(1, desiredRange));
+      const tooClose = Math.max(0, desiredRange - dist);
+      const repel = Math.min(1, tooClose / Math.max(1, desiredRange));
+      const distanceDrive = approach - repel;
+      const forwardGain = forwardBias + distanceDrive * 0.95;
+
+      const strafePulse = 0.65 + 0.35 * Math.sin(nowSec * (1.4 + (state.seed ?? 0) * 0.015) + (state.seed ?? 0));
+      const strafeSpeed = strafe * strafeMul * strafePulse * (state.strafeDir ?? 1);
+      this._strafeVec.set(-this._toTarget.z, 0, this._toTarget.x);
+      if (this._strafeVec.lengthSq() > 0.000001) this._strafeVec.normalize().multiplyScalar(strafeSpeed);
+
+      if (recentlyHit && nowSec >= (state.nextEvadeAtSec ?? 0)) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        state.evadeVec.set(this._toTarget.z * side, (Math.random() - 0.5) * 0.35, -this._toTarget.x * side).normalize();
+        state.evadeUntilSec = nowSec + 0.7 + Math.random() * 0.4;
+        state.nextEvadeAtSec = nowSec + 1.0 + Math.random() * 0.7;
+      }
+      const evadeScale = (state.evadeUntilSec ?? 0) > nowSec
+        ? speed * Math.min(1.4, (state.evadeUntilSec - nowSec) * 2.2)
+        : 0;
+      const bob = Math.sin(nowSec * (1.8 + ((state.seed ?? 0) % 0.8)) + (state.seed ?? 0)) * speed * 0.2;
+
+      const desiredVx = this._toTarget.x * speed * forwardGain + this._strafeVec.x + (state.evadeVec.x * evadeScale);
+      const desiredVy = this._toTarget.y * speed * (0.25 + forwardGain * 0.18) + bob + (state.evadeVec.y * evadeScale);
+      const desiredVz = this._toTarget.z * speed * forwardGain + this._strafeVec.z + (state.evadeVec.z * evadeScale);
 
       const vel = g.world.velocity.get(entityId) ?? { x: 0, y: 0, z: 0 };
-      const blend = Math.min(1, dtSec * 3.2);
-      vel.x += (desiredVx - vel.x) * blend;
-      vel.y += (desiredVy - vel.y) * blend;
-      vel.z += (desiredVz - vel.z) * blend;
+      const maxSpeed = speed * (behavior === 'flee' || behavior === 'evade' ? 2.35 : 2.0);
+      const speedSq = desiredVx * desiredVx + desiredVy * desiredVy + desiredVz * desiredVz;
+      let targetVx = desiredVx;
+      let targetVy = desiredVy;
+      let targetVz = desiredVz;
+      if (speedSq > maxSpeed * maxSpeed) {
+        const inv = maxSpeed / Math.sqrt(speedSq);
+        targetVx *= inv;
+        targetVy *= inv;
+        targetVz *= inv;
+      }
+
+      const blendFactor = behavior === 'evade' || behavior === 'flee' ? 6.0 : 4.0;
+      const blend = Math.min(1, dtSec * blendFactor);
+      vel.x += (targetVx - vel.x) * blend;
+      vel.y += (targetVy - vel.y) * blend;
+      vel.z += (targetVz - vel.z) * blend;
       g.world.velocity.set(entityId, vel);
 
       t.x += vel.x * dtSec;
@@ -92,11 +184,10 @@ export class EnemySystem {
 
       const cd = enemyCfg.shotCooldownSec ?? 2;
       const nextShotAt = obj.userData.nextShotAtSec ?? 0;
-      const shotRange = enemyCfg.shotRange ?? 900;
       if (dist < shotRange && nowSec >= nextShotAt) {
         const bulletSpeed = enemyCfg.bulletSpeed ?? 9;
         this._shootEnemy(entityId, obj, bulletSpeed, targetId ?? g.playerEntityId, dist, shotRange);
-        obj.userData.nextShotAtSec = nowSec + cd;
+        obj.userData.nextShotAtSec = nowSec + (cd * shootCadenceMul);
       }
 
       this._collectNearbyLoot(entityId, obj, state);
@@ -118,7 +209,7 @@ export class EnemySystem {
     const g = this.game;
     const ws = g.worldScale ?? 1;
     const shipData = this._enemyShipByKind[kind] ?? V1.ships.balanced;
-    const hp = Math.max(V1.targets?.[kind]?.hp ?? 40, shipData.hull ?? 100);
+    const hp = Math.max(1, V1.targets?.[kind]?.hp ?? 40);
 
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
@@ -145,71 +236,111 @@ export class EnemySystem {
         cargoUsed: 0,
         cargoMax: shipData.cargo ?? 30,
         targetEntityId: g.playerEntityId,
-        nextRetargetAtSec: 0
+        nextRetargetAtSec: 0,
+        behavior: 'chase',
+        strafeDir: Math.random() < 0.5 ? -1 : 1,
+        nextStrafeFlipAtSec: 0,
+        evadeUntilSec: 0,
+        nextEvadeAtSec: 0,
+        evadeVec: new THREE.Vector3(),
+        seed: Math.random() * 1000
       });
     }
   }
 
   _createEnemyMesh(kind, shipData) {
     const g = this.game;
+    const templateKey = kind;
+    const cached = this._enemyMeshTemplates.get(templateKey);
+    if (cached) return this._cloneEnemyTemplate(cached);
+
+    let template = null;
     if (!g._voxelTextures || !g._voxLit) {
       const ws = g.worldScale ?? 1;
       const geo = new THREE.BoxGeometry(12 * ws, 6 * ws, 18 * ws);
-      return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff6666, emissive: 0x220808, roughness: 0.8, metalness: 0.2, flatShading: true }));
+      template = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff6666, emissive: 0x220808, roughness: 0.8, metalness: 0.2, flatShading: true }));
+      template.userData.hitRadius = 10 * ws;
+    } else {
+      const enemyShipData = {
+        ...(shipData ?? V1.ships.balanced),
+        color: 0xff5f66
+      };
+
+      const { group, bounds } = createVoxelShipModel({
+        shipData: enemyShipData,
+        voxelSize: g.voxel?.size ?? 5,
+        textures: g._voxelTextures,
+        theme: g.theme,
+        voxLit: (opts) => g._voxLit(opts)
+      });
+
+      const size = bounds?.size ?? new THREE.Vector3(24, 12, 30);
+      group.userData.hitRadius = Math.max(size.x, size.y, size.z) * 0.45;
+
+      group.traverse((n) => {
+        if (!n?.isMesh || !n.material?.color) return;
+        n.material = n.material.clone();
+        if (n.material?.emissive) {
+          n.material.emissive = n.material.emissive.clone();
+          n.material.emissive.offsetHSL(0, 0, 0.02);
+        }
+      });
+      template = group;
     }
 
-    const enemyShipData = {
-      ...(shipData ?? V1.ships.balanced),
-      color: 0xff5f66
+    this._enemyMeshTemplates.set(templateKey, template);
+    return this._cloneEnemyTemplate(template);
+  }
+
+  _cloneEnemyTemplate(template) {
+    const clone = template.clone(true);
+    clone.userData = {
+      ...(template.userData ?? {}),
+      type: 'enemy',
+      enemyKind: null,
+      cargoManifest: []
     };
-
-    const { group } = createVoxelShipModel({
-      shipData: enemyShipData,
-      voxelSize: g.voxel?.size ?? 5,
-      textures: g._voxelTextures,
-      theme: g.theme,
-      voxLit: (opts) => g._voxLit(opts)
-    });
-
-    group.traverse((n) => {
-      if (!n?.isMesh || !n.material?.color) return;
+    clone.traverse((n) => {
+      if (!n?.isMesh || !n.material) return;
       n.material = n.material.clone();
-      if (n.material?.emissive) {
-        n.material.emissive = n.material.emissive.clone();
-        n.material.emissive.offsetHSL(0, 0, 0.02);
-      }
+      if (n.material?.emissive?.clone) n.material.emissive = n.material.emissive.clone();
     });
+    return clone;
+  }
 
-    return group;
+  _cleanupEnemyState() {
+    for (const id of this._enemyState.keys()) {
+      if (!this.game.world.objectMeta.has(id)) this._enemyState.delete(id);
+    }
   }
 
   _updateEnemyTarget(entityId, state, nowSec) {
     const g = this.game;
     if ((state.nextRetargetAtSec ?? 0) > nowSec) return;
-    state.nextRetargetAtSec = nowSec + 0.65 + Math.random() * 0.4;
+    state.nextRetargetAtSec = nowSec + 0.4 + Math.random() * 0.3;
 
     const t = g.world.transform.get(entityId);
     if (!t) return;
 
-    let lootTarget = null;
-    let lootDist = Infinity;
-    if ((state.cargoUsed ?? 0) < (state.cargoMax ?? 0)) {
-      for (const [lootId] of g.world.loot) {
-        const lt = g.world.transform.get(lootId);
-        if (!lt) continue;
-        const dx = lt.x - t.x;
-        const dy = lt.y - t.y;
-        const dz = lt.z - t.z;
+    const enemyObj = g.renderRegistry.get(entityId);
+    const recentlyHit = ((enemyObj?.userData?.lastHitByPlayerAtSec ?? -999) + 6) > nowSec;
+    const hp = g.world.getHealth(entityId);
+    const hpRatio = hp && hp.maxHp > 0 ? hp.hp / hp.maxHp : 1;
+    // Combat-first: stay focused on the player.
+    if (g.playerEntityId) {
+      const pt = g.world.transform.get(g.playerEntityId);
+      if (pt) {
+        const dx = pt.x - t.x;
+        const dy = pt.y - t.y;
+        const dz = pt.z - t.z;
         const d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < lootDist) {
-          lootDist = d2;
-          lootTarget = lootId;
+        const closeThreat = d2 < (900 * 900);
+        if (closeThreat || recentlyHit || hpRatio < 0.46) {
+          state.targetEntityId = g.playerEntityId;
+          return;
         }
       }
-    }
-
-    if (lootTarget && lootDist < 1800 * 1800) {
-      state.targetEntityId = lootTarget;
+      state.targetEntityId = g.playerEntityId;
       return;
     }
 
@@ -230,12 +361,47 @@ export class EnemySystem {
       }
     }
 
-    if (objTarget && objDist < 2600 * 2600) {
+    if (objTarget && objDist < 2200 * 2200) {
       state.targetEntityId = objTarget;
       return;
     }
 
-    state.targetEntityId = g.playerEntityId;
+    state.targetEntityId = null;
+  }
+
+  _updateBehaviorState(state, {
+    nowSec,
+    dist,
+    stopDist,
+    shotRange,
+    hpRatio,
+    playerHullRatio,
+    recentlyHit,
+    targetIsPlayer
+  }) {
+    if ((state.nextStrafeFlipAtSec ?? 0) <= nowSec) {
+      state.strafeDir = (state.strafeDir ?? 1) * -1;
+      state.nextStrafeFlipAtSec = nowSec + 0.8 + Math.random() * 1.4;
+    }
+
+    let behavior = 'strafe';
+    if (!targetIsPlayer) {
+      behavior = dist > stopDist * 1.15 ? 'chase' : 'strafe';
+    } else if (hpRatio < 0.30) {
+      behavior = 'flee';
+    } else if (recentlyHit && hpRatio < 0.62) {
+      behavior = 'evade';
+    } else if (dist > shotRange * 1.08) {
+      behavior = 'chase';
+    } else if (dist < stopDist * 0.78) {
+      behavior = hpRatio > (playerHullRatio + 0.12) ? 'pressure' : 'kite';
+    } else if (playerHullRatio < 0.45 && hpRatio > 0.52) {
+      behavior = 'pressure';
+    } else {
+      behavior = 'strafe';
+    }
+    state.behavior = behavior;
+    return behavior;
   }
 
   _collectNearbyLoot(entityId, obj, state) {
@@ -282,7 +448,7 @@ export class EnemySystem {
     this._to.set(tt.x, tt.y, tt.z);
     const dir = this._to.sub(this._from).normalize();
 
-    const missScale = Math.max(0.015, 0.11 * (distToTarget / Math.max(1, shotRange)));
+    const missScale = Math.max(0.006, 0.045 * (distToTarget / Math.max(1, shotRange)));
     dir.x += (Math.random() - 0.5) * missScale;
     dir.y += (Math.random() - 0.5) * missScale;
     dir.z += (Math.random() - 0.5) * missScale;

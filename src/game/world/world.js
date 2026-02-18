@@ -138,7 +138,8 @@ export class World {
   damage(entityId, amount) {
     const h = this.health.get(entityId);
     if (!h) return null;
-    h.hp = Math.max(0, h.hp - amount);
+    const next = Math.max(0, h.hp - amount);
+    h.hp = next <= 0.0001 ? 0 : next;
     return h;
   }
 }

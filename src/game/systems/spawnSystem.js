@@ -129,16 +129,9 @@ export class SpawnSystem {
     const entityId = obj?.userData?.entityId ?? null;
     const kind = entityId ? (g.world.objectMeta.get(entityId)?.kind ?? null) : null;
     const cfg = kind ? (V1.targets?.[kind] ?? null) : null;
-    const manifest = Array.isArray(obj?.userData?.cargoManifest) ? obj.userData.cargoManifest : null;
-    const nowSec = g._simTimeSec ?? 0;
-
-    if (manifest && manifest.length > 0) {
-      this._spawnManifestDrops(obj, manifest, nowSec);
-      obj.userData.cargoManifest = [];
-    }
-
     if (!cfg) return;
 
+    const nowSec = g._simTimeSec ?? 0;
     const coinUnit = V1.currencyUnits.coinPickup ?? 10;
     const gemUnit = V1.currencyUnits.gemPickup ?? 50;
 
@@ -152,24 +145,6 @@ export class SpawnSystem {
     if (pChance > 0 && Math.random() < pChance) {
       const pid = this._pickPowerupId();
       if (pid) this._spawnPowerup(obj, { powerupId: pid, nowSec });
-    }
-  }
-
-  _spawnManifestDrops(obj, manifest, nowSec) {
-    for (const item of manifest) {
-      const type = item?.type ?? 'coin';
-      const value = Math.max(1, Math.round(item?.value ?? 1));
-      if (type === 'powerup' && item?.powerupId) {
-        this._spawnPowerup(obj, { powerupId: item.powerupId, nowSec });
-        continue;
-      }
-
-      this._spawnCurrencyTotal(obj, {
-        type: type === 'gem' ? 'gem' : 'coin',
-        total: value,
-        unit: value,
-        nowSec
-      });
     }
   }
 
@@ -766,8 +741,24 @@ export class SpawnSystem {
     if (this._fragmentPool.length < this._fragmentPoolLimit) this._fragmentPool.push(fragment);
   }
 
+  _getSourceMaterial(obj) {
+    if (!obj) return null;
+    const direct = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    if (direct) return direct;
+
+    let found = null;
+    if (typeof obj.traverse === 'function') {
+      obj.traverse((n) => {
+        if (found || !n?.isMesh) return;
+        const m = Array.isArray(n.material) ? n.material[0] : n.material;
+        if (m) found = m;
+      });
+    }
+    return found;
+  }
+
   _acquireFragment(obj) {
-    const srcMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    const srcMat = this._getSourceMaterial(obj);
 
     const frag = this._fragmentPool.pop() ?? null;
     if (frag) {
@@ -776,13 +767,17 @@ export class SpawnSystem {
       return frag;
     }
 
-    const mat = srcMat.clone();
+    const mat = srcMat?.clone?.() ?? new THREE.MeshStandardMaterial({
+      color: 0x888888,
+      roughness: 0.9,
+      metalness: 0.1
+    });
     const mesh = new THREE.Mesh(this._fragmentGeo, mat);
     return mesh;
   }
 
   _acquireVoxelDebris(obj) {
-    const srcMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    const srcMat = this._getSourceMaterial(obj);
     const mesh = this._voxelDebrisPool.pop() ?? null;
     if (mesh) {
       mesh.visible = true;
@@ -817,7 +812,7 @@ export class SpawnSystem {
   }
 
   _tintVoxelDebrisToSource(debris, srcObj) {
-    const srcMat = Array.isArray(srcObj.material) ? srcObj.material[0] : srcObj.material;
+    const srcMat = this._getSourceMaterial(srcObj);
     if (!debris?.material?.color || !srcMat?.color) return;
 
     // Keep hue the same but introduce subtle value variation so it reads as "real chunks".

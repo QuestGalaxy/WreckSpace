@@ -373,10 +373,10 @@ export class CombatSystem {
         const obj = g.renderRegistry.get(entityId);
         if (!obj) return false;
 
-        // Use geometry radius if available; fallback to cached hit radius for Group-based meshes (enemy ships).
+        // Geometry radius for mesh targets; fallback to cached hit radius for Group targets (enemy ships).
         const geoR = obj.geometry?.boundingSphere?.radius ?? null;
         const hitR = obj.userData?.hitRadius ?? null;
-        const radius = (geoR != null ? (t.sx ?? 1) * geoR : (hitR ?? Math.max(1, t.sx ?? 1)));
+        const radius = geoR != null ? (t.sx ?? 1) * geoR : (hitR ?? Math.max(1, t.sx ?? 1));
         const r2 = radius * radius;
 
         // Segment-sphere intersection via closest point.
@@ -425,6 +425,7 @@ export class CombatSystem {
         }
 
           const dmg = (g.weaponDerived?.damage ?? 1) * (g.powerupDerived?.damageMul ?? 1);
+          if (obj?.userData) obj.userData.lastHitByPlayerAtSec = g._simTimeSec ?? 0;
 
           // Localized impact glow (avoid flashing the entire planet).
           if (g.vfx?.createVoxelHitGlow && obj.userData?.type === 'planet') {
@@ -464,10 +465,6 @@ export class CombatSystem {
             intensity: dmg
           });
           const h = g.world.damage(entityId, dmg);
-          if (obj?.userData && (obj.userData.type === 'enemy')) {
-            obj.userData.lastHitAtSec = g._simTimeSec ?? 0;
-            obj.userData.lastHitByPlayerAtSec = g._simTimeSec ?? 0;
-          }
 
           // Voxel destruction: pop cubes from the impact point and carve the object.
           if (g.voxelDestruction?.onHit) {
@@ -505,12 +502,32 @@ export class CombatSystem {
       };
 
       if (lockedId && lockedType === 'planet') {
+        // Mining feel: if explicitly locked to planet, prioritize that body.
         hit = checkEntity(lockedId);
       } else {
-        for (const [entityId] of g.world.objectMeta) {
-          if (checkEntity(entityId)) {
-            hit = true;
-            break;
+        // Always test the locked target first (enemy/asteroid/etc.).
+        if (lockedId) hit = checkEntity(lockedId);
+
+        // Combat feel: enemies should be hittable first in mixed scenes.
+        if (!hit) {
+          for (const [entityId, meta] of g.world.objectMeta) {
+            if (entityId === lockedId) continue;
+            if (meta?.type !== 'enemy') continue;
+            if (checkEntity(entityId)) {
+              hit = true;
+              break;
+            }
+          }
+        }
+
+        if (!hit) {
+          for (const [entityId, meta] of g.world.objectMeta) {
+            if (entityId === lockedId) continue;
+            if (meta?.type === 'enemy') continue;
+            if (checkEntity(entityId)) {
+              hit = true;
+              break;
+            }
           }
         }
       }

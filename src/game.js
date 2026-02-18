@@ -133,6 +133,7 @@ export class Game {
         this.particles = [];
         this.cameraShake = 0;
         this.isPaused = false;
+        this._playerDestroyedFxDone = false;
         this.lastShotTime = 0;
         this._fireHeldMouse = false;
         this._fireHeldTouch = false;
@@ -674,6 +675,8 @@ export class Game {
     resumeFromBase() {
         if (this.hud) this.hud.setBaseMenuVisible(false);
         this.isPaused = false;
+        this._playerDestroyedFxDone = false;
+        if (this.player) this.player.visible = true;
         // Refill on resume.
         this.stats.hull = this.shipDerived.maxHull;
         this.stats.shield = this.shieldDerived.max;
@@ -888,11 +891,41 @@ export class Game {
         // V1: no collision damage; damage should be applied by enemy fire (future/other system).
 
         if (this.stats.hull <= 0 && !this.isPaused) {
-            this.showMessage('Ship Destroyed! (Reload to restart)');
+            this._triggerPlayerDestroyedFx();
+            this.showMessage('Ship disabled! (Reload to restart)');
             this.telemetry.track('player.destroyed', { t: nowSec, coin: this.stats.coin ?? 0, gem: this.stats.gem ?? 0 });
             this.isPaused = true;
             if (this.hud) this.hud.setBaseMenuVisible(false);
         }
+    }
+
+    _triggerPlayerDestroyedFx() {
+        if (this._playerDestroyedFxDone) return;
+        this._playerDestroyedFxDone = true;
+
+        const ws = this.worldScale ?? 1;
+        let pos = this.player?.position ?? null;
+        if (!pos && this.playerEntityId) {
+            const t = this.world.transform.get(this.playerEntityId);
+            if (t) pos = new THREE.Vector3(t.x, t.y, t.z);
+        }
+        if (pos && this.vfx) {
+            const blastSize = Math.max((this.shipCollisionRadiusWorld ?? (10 * ws)) * 1.6, 18 * ws);
+            this.soundManager.playExplosion(blastSize);
+            this.vfx.createExplosion(pos, blastSize, 'player');
+            this.vfx.createHitEffect(pos);
+        }
+
+        if (this.player) this.player.visible = false;
+        if (this.playerEntityId) {
+            const vel = this.world.velocity.get(this.playerEntityId);
+            if (vel) {
+                vel.x = 0;
+                vel.y = 0;
+                vel.z = 0;
+            }
+        }
+        this.cameraShake = Math.max(this.cameraShake ?? 0, 2.2);
     }
 
     _applyCollisionDamage(dtSec) {
@@ -933,11 +966,13 @@ export class Game {
         const s = this.stats.shield ?? 0;
         if (s > 0) {
             const use = Math.min(s, a);
-            this.stats.shield = s - use;
+            const shieldLeft = s - use;
+            this.stats.shield = shieldLeft <= 0.0001 ? 0 : shieldLeft;
             a -= use;
         }
         if (a > 0) {
-            this.stats.hull = Math.max(0, (this.stats.hull ?? 0) - a);
+            const hullLeft = Math.max(0, (this.stats.hull ?? 0) - a);
+            this.stats.hull = hullLeft <= 0.0001 ? 0 : hullLeft;
         }
     }
 
@@ -1490,6 +1525,8 @@ export class Game {
         this.engineOffsets = engineOffsets;
         this.shipMuzzleOffset = muzzleOffset;
         this.player = group;
+        this.player.visible = true;
+        this._playerDestroyedFxDone = false;
         this.scene.add(this.player);
 
         // Collision radius for minimal hull/shield damage (V1). Keep it stable and cheap.
@@ -1950,9 +1987,15 @@ export class Game {
     }
 
     update(dtSec = 1 / 60) {
-        if (this.isPaused) return;
         this._simTimeSec += dtSec;
         const now = this._simTimeSec;
+
+        if (this.isPaused) {
+            // Keep death/base VFX animating while gameplay is paused.
+            this.vfx.update(dtSec, now);
+            this.updateHudStats();
+            return;
+        }
 
         // Hold-to-fire support (mouse/touch + backup key).
         // Note: Space key is still handled on keydown for immediate response.
@@ -1972,6 +2015,7 @@ export class Game {
         this.cameraSystem.update(dtSec, now);
         this.enemies.update(dtSec, now);
         this.combat.update(dtSec, now);
+        this._cleanupDestroyedObjects();
         this.voxelDestruction.update(dtSec, now);
         this.updateBaseMarker(dtSec, now);
 
@@ -1979,6 +2023,19 @@ export class Game {
 
         this.loot.update(dtSec, now);
         this.updateHudStats();
+    }
+
+    _cleanupDestroyedObjects() {
+        // Safety net: if any world object HP reached zero, force destruction this frame.
+        const toDestroy = [];
+        for (const [entityId] of this.world.objectMeta) {
+            const h = this.world.getHealth(entityId);
+            if (!h) continue;
+            if (h.hp <= 0) toDestroy.push(entityId);
+        }
+        for (const entityId of toDestroy) {
+            this.destroyObjectEntity(entityId);
+        }
     }
 
     destroyObject(obj, index) {
